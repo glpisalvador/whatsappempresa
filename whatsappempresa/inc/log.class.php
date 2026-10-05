@@ -24,7 +24,7 @@ class PluginWhatsappempresaLog extends CommonDBTM {
    }
 
    function rawSearchOptions() {
-      return [
+      return self::comTipoProprio([
          ['id' => 'common', 'name' => self::getTypeName(1)],
          ['id' => 1, 'table' => self::getTable(), 'field' => 'evento', 'name' => 'Evento', 'datatype' => 'string', 'massiveaction' => false],
          ['id' => 2, 'table' => self::getTable(), 'field' => 'id', 'name' => 'ID', 'datatype' => 'number', 'massiveaction' => false],
@@ -33,7 +33,7 @@ class PluginWhatsappempresaLog extends CommonDBTM {
          ['id' => 5, 'table' => self::getTable(), 'field' => 'origem', 'name' => 'Origem', 'datatype' => 'string', 'massiveaction' => false],
          ['id' => 6, 'table' => self::getTable(), 'field' => 'detalhe', 'name' => 'Detalhe', 'datatype' => 'text', 'massiveaction' => false],
          self::opcaoUsuario(7, 'users_id', 'Usuario')
-      ];
+      ]);
    }
 
    static function registrar(string $evento, string $detalhe = '', string $nivel = 'info', string $origem = 'plugin', int $users_id = 0): void {

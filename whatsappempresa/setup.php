@@ -5,7 +5,7 @@
 
 use Glpi\Plugin\Hooks;
 
-define('PLUGIN_WHATSAPPEMPRESA_VERSION', '3.4.1');
+define('PLUGIN_WHATSAPPEMPRESA_VERSION', '3.4.2');
 define('PLUGIN_WHATSAPPEMPRESA_MIN_GLPI', '11.0.0');
 define('PLUGIN_WHATSAPPEMPRESA_MAX_GLPI', '12.0.99');
 
@@ -49,8 +49,8 @@ function plugin_init_whatsappempresa(): void {
 
    if (isset($_SESSION['glpiID'], $_SESSION['glpiactiveprofile']) && Session::haveRight('ticket', READ)) {
       // Botao flutuante de conversas e estilo do chat na aba WhatsApp dos chamados
-      $PLUGIN_HOOKS[Hooks::ADD_CSS]['whatsappempresa']        = ['public/css/notificacoes.css', 'public/css/estilo.css'];
-      $PLUGIN_HOOKS[Hooks::ADD_JAVASCRIPT]['whatsappempresa'] = ['public/js/notificacoes.js'];
+      $PLUGIN_HOOKS[Hooks::ADD_CSS]['whatsappempresa']        = ['css/notificacoes.css', 'css/estilo.css'];
+      $PLUGIN_HOOKS[Hooks::ADD_JAVASCRIPT]['whatsappempresa'] = ['js/notificacoes.js'];
    }
 
    $PLUGIN_HOOKS[Hooks::ITEM_ADD]['whatsappempresa']['TicketValidation'] = 'plugin_whatsappempresa_item_add';
@@ -71,6 +71,14 @@ function plugin_whatsappempresa_redefinir_menu($menu) {
       $dados = $classe::getMenuContent();
       if (is_array($dados) && !empty($dados)) {
          $conteudo[strtolower($classe)] = $dados;
+      }
+      // Fluxos: construtor visual em página própria, logo depois de Servidores
+      if ($classe === 'PluginWhatsappempresaPainel' && isset($conteudo['pluginwhatsappempresapainel'])) {
+         $conteudo['fluxos'] = [
+            'title' => 'Fluxos',
+            'page'  => '/plugins/whatsappempresa/front/fluxos.php',
+            'icon'  => 'ti ti-git-merge'
+         ];
       }
    }
    if (empty($conteudo)) {

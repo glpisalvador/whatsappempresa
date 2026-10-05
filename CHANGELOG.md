@@ -2,6 +2,13 @@
 
 O arquivo para download de cada versão está em [Releases](https://github.com/glpisalvador/whatsappempresa/releases).
 
+## 3.4.2 — 2026-09-29
+
+Versão atual.
+
+- Atendimento pelo WhatsApp com **autoatendimento**, **construtor visual de fluxos**, vários números, conversa técnico-cliente no chamado e **aprovação de validações**.
+- Servidor Node.js + Baileys administrado pelo GLPI.
+
 ## 3.4.1 — 2026-09-29
 
 Versão intermediária de 29/09/2026.

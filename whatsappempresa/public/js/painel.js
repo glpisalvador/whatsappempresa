@@ -455,8 +455,8 @@
 
    function abrirFluxosDa(id) {
       try { localStorage.setItem('wae-construtor-conexao', String(id)); } catch (x) { /* sem armazenamento */ }
-      var aba = document.querySelector('a[data-glpi-ajax-content*="PluginWhatsappempresaPainel$5"], a[data-glpi-ajax-content*="PluginWhatsappempresaPainel%245"]');
-      if (aba) { aba.click(); } else { avisar('Abra a aba Fluxos: o número já está selecionado lá.'); }
+      var raiz = (typeof CFG_GLPI !== 'undefined' && CFG_GLPI.root_doc) ? CFG_GLPI.root_doc : '';
+      window.location.href = raiz + '/plugins/whatsappempresa/front/fluxos.php';
    }
 
    function ligarConexoes() {

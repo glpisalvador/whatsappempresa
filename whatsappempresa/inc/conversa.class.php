@@ -32,7 +32,7 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
 
    function rawSearchOptions() {
       $t = self::getTable();
-      return [
+      return self::comTipoProprio([
          ['id' => 'common', 'name' => 'Conversa do WhatsApp'],
          ['id' => 1, 'table' => $t, 'field' => 'nome_contato', 'name' => 'Contato', 'datatype' => 'string', 'massiveaction' => false],
          ['id' => 2, 'table' => $t, 'field' => 'id', 'name' => 'ID', 'datatype' => 'number', 'massiveaction' => false],
@@ -48,7 +48,7 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
          ['id' => 12, 'table' => $t, 'field' => 'date_creation', 'name' => 'Inicio', 'datatype' => 'datetime', 'massiveaction' => false],
          ['id' => 13, 'table' => $t, 'field' => 'date_encerramento', 'name' => 'Encerramento', 'datatype' => 'datetime', 'massiveaction' => false],
          ['id' => 14, 'table' => $t, 'field' => 'motivo_encerramento', 'name' => 'Motivo do encerramento', 'datatype' => 'string', 'massiveaction' => false]
-      ];
+      ]);
    }
 
    function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
@@ -134,7 +134,7 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
 
       echo '</div></div></div>';
 
-      echo Html::script('/plugins/whatsappempresa/public/js/conversa.js', [
+      echo Html::script('/plugins/whatsappempresa/js/conversa.js', [
          'version' => PLUGIN_WHATSAPPEMPRESA_VERSION
       ]);
    }

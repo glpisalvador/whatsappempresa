@@ -39,7 +39,7 @@ class PluginWhatsappempresaSessao extends CommonDBTM {
 
    function rawSearchOptions() {
       $t = self::getTable();
-      return [
+      return self::comTipoProprio([
          ['id' => 'common', 'name' => self::getTypeName(1)],
          ['id' => 1, 'table' => $t, 'field' => 'telefone', 'name' => 'Numero', 'datatype' => 'string', 'massiveaction' => false],
          ['id' => 2, 'table' => $t, 'field' => 'id', 'name' => 'ID', 'datatype' => 'number', 'massiveaction' => false],
@@ -51,7 +51,7 @@ class PluginWhatsappempresaSessao extends CommonDBTM {
          self::opcaoUsuario(8, 'users_id', 'Usuario'),
          self::opcaoChamado(9),
          ['id' => 19, 'table' => $t, 'field' => 'date_mod', 'name' => 'Ultima atividade', 'datatype' => 'datetime', 'massiveaction' => false]
-      ];
+      ]);
    }
 
    function getSpecificMassiveActions($checkitem = null) {

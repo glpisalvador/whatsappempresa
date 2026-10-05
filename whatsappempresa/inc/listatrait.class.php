@@ -39,6 +39,21 @@ trait PluginWhatsappempresaListaTrait {
    }
 
    /**
+    * Marca as colunas da propria tabela com a classe. O GLPI 12 descobre a classe pelo nome da tabela
+    * (getItemTypeForTable), o que falha nos plurais em portugues (mensagens -> "Mensagen", sessoes -> "Sessoe",
+    * validacoes -> "Validacoe") e quebra a lista com "getItemForItemtype(): null given".
+    */
+   static function comTipoProprio(array $opcoes): array {
+      $tabela = static::getTable();
+      foreach ($opcoes as $i => $opcao) {
+         if (is_array($opcao) && ($opcao['table'] ?? '') === $tabela && !isset($opcao['itemtype'])) {
+            $opcoes[$i]['itemtype'] = static::class;
+         }
+      }
+      return $opcoes;
+   }
+
+   /**
     * Opcao de pesquisa de usuario do GLPI ligada a uma coluna da tabela
     */
    static function opcaoUsuario(int $id, string $coluna, string $nome): array {
