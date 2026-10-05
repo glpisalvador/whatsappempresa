@@ -404,42 +404,61 @@
    }
 
    // ============================================
-   // Numeros conectados: cada um tem os seus fluxos
+   // Aparelhos conectados: cada um tem os seus fluxos
+   // Visao geral (aparelhos e fluxos) e editor (blocos de um fluxo)
    // ============================================
+
+   var aparelhos = [];
+   var gatilhosNomes = {};
+   var arrastandoFluxo = 0;
 
    function conexoes() { return (catalogo && catalogo.conexoes) || []; }
 
-   function nomeConexao(c) {
-      return c.nome + (c.numero ? ' (' + c.numero + ')' : '');
+   function formatarNumero(numero) {
+      var d = String(numero || '').replace(/\D/g, '');
+      if (d.length === 13) { return '+' + d.slice(0, 2) + ' (' + d.slice(2, 4) + ') ' + d.slice(4, 9) + '-' + d.slice(9); }
+      if (d.length === 12) { return '+' + d.slice(0, 2) + ' (' + d.slice(2, 4) + ') ' + d.slice(4, 8) + '-' + d.slice(8); }
+      return d;
    }
 
-   /** Seletor de numero e o menu "copiar para" */
-   function desenharConexoes() {
-      var lista = conexoes();
-      var seletor = $id('wae-cons-conexao');
-      var caixa = $id('wae-cons-conexao-caixa');
-      if (seletor) {
-         seletor.innerHTML = lista.map(function (c) {
-            return '<option value="' + c.id + '"' + (c.id === conexao ? ' selected' : '') + '>' + e(nomeConexao(c)) + (c.padrao ? ' ★' : '') + '</option>';
-         }).join('');
-         if (caixa) { caixa.classList.toggle('wae-oculto', lista.length < 2); }
-      }
+   function nomeConexao(c) {
+      return c.nome + (c.numero ? ' · ' + formatarNumero(c.numero) : '');
+   }
 
+   function conexaoPorId(id) {
+      return conexoes().filter(function (c) { return c.id === id; })[0] || null;
+   }
+
+   /** Itens "mover para" e "copiar para" dos outros aparelhos */
+   function itensOutrosAparelhos(origem) {
+      var outros = conexoes().filter(function (c) { return c.id !== origem; });
+      if (!outros.length) { return ''; }
+      var item = function (acao, icone, c) {
+         return '<a href="#" class="dropdown-item" data-' + acao + '="' + c.id + '"><i class="ti ' + icone + ' me-2"></i>' + e(nomeConexao(c)) + '</a>';
+      };
+      return '<div class="dropdown-divider"></div><h6 class="dropdown-header">Mover para o aparelho</h6>' +
+         outros.map(function (c) { return item('mover', 'ti-arrow-move-right', c); }).join('') +
+         '<div class="dropdown-divider"></div><h6 class="dropdown-header">Copiar para o aparelho</h6>' +
+         outros.map(function (c) { return item('destino', 'ti-copy', c); }).join('');
+   }
+
+   /** Aparelho do editor e o menu de copiar/mover da barra */
+   function desenharConexoes() {
+      var c = conexaoPorId(conexao);
+      var chip = $id('wae-cons-aparelho');
+      if (chip) {
+         chip.innerHTML = '<i class="ti ti-device-mobile me-1"></i>' + e(c ? nomeConexao(c) : 'Aparelho');
+      }
       var menu = $id('wae-cons-copiar-menu');
       if (menu) {
-         var outros = lista.filter(function (c) { return c.id !== conexao; });
-         menu.innerHTML = '<a href="#" class="dropdown-item" data-destino="0"><i class="ti ti-copy me-2"></i>Duplicar neste número</a>' +
-            (outros.length ? '<div class="dropdown-divider"></div><h6 class="dropdown-header">Copiar para outro número</h6>' +
-               outros.map(function (c) {
-                  return '<a href="#" class="dropdown-item" data-destino="' + c.id + '"><i class="ti ti-device-mobile-share me-2"></i>' + e(nomeConexao(c)) + '</a>';
-               }).join('') : '');
+         menu.innerHTML = '<a href="#" class="dropdown-item" data-destino="0"><i class="ti ti-copy me-2"></i>Duplicar neste aparelho</a>' +
+            itensOutrosAparelhos(conexao);
       }
    }
 
    function escolherConexao(id) {
       var lista = conexoes();
-      var existe = lista.some(function (c) { return c.id === id; });
-      if (!existe) {
+      if (!lista.some(function (c) { return c.id === id; })) {
          var padrao = lista.filter(function (c) { return c.padrao; })[0] || lista[0];
          id = padrao ? padrao.id : 0;
       }
@@ -448,25 +467,7 @@
       desenharConexoes();
    }
 
-   function ligarConexoes() {
-      var salvo = 0;
-      try { salvo = parseInt(localStorage.getItem(CHAVE_CONEXAO) || '0', 10); } catch (x) { salvo = 0; }
-      escolherConexao(salvo);
-
-      var seletor = $id('wae-cons-conexao');
-      if (seletor) {
-         seletor.addEventListener('change', function () {
-            var id = parseInt(this.value, 10);
-            salvarAgora().then(function () {
-               escolherConexao(id);
-               atual = null;
-               carregarLista();
-            });
-         });
-      }
-   }
-
-   /** Nomes dos fluxos (bloco Trocar de fluxo) e numeros atualizados */
+   /** Nomes dos fluxos (bloco Trocar de fluxo) e aparelhos atualizados */
    function recarregarCatalogo() {
       return WAE.pedir('fluxo_catalogo').then(function (r) {
          if (!r.sucesso) { return; }
@@ -474,6 +475,231 @@
          catalogo.conexoes = r.catalogo.conexoes;
          desenharConexoes();
       });
+   }
+
+   // ---------- Visao geral ----------
+
+   function htmlFluxoNaVisao(f, aparelho) {
+      var gatilho = gatilhosNomes[f.gatilho] || f.gatilho;
+      if (f.gatilho === 'palavra' && f.palavras) { gatilho += ': ' + resumir(f.palavras, 40); }
+
+      var menu = podeEditar
+         ? '<div class="dropdown">' +
+              '<button type="button" class="btn btn-sm btn-ghost-secondary" data-bs-toggle="dropdown" title="Mais opções"><i class="ti ti-dots-vertical"></i></button>' +
+              '<div class="dropdown-menu dropdown-menu-end">' +
+                 '<a href="#" class="dropdown-item" data-abrir="1"><i class="ti ti-pencil me-2"></i>Abrir os blocos</a>' +
+                 '<a href="#" class="dropdown-item" data-destino="0"><i class="ti ti-copy me-2"></i>Duplicar neste aparelho</a>' +
+                 itensOutrosAparelhos(aparelho.id) +
+                 '<div class="dropdown-divider"></div>' +
+                 '<a href="#" class="dropdown-item text-danger" data-excluir="1"><i class="ti ti-trash me-2"></i>Excluir</a>' +
+              '</div></div>'
+         : '';
+
+      return '<div class="wae-ap-fluxo' + (f.is_ativo ? '' : ' wae-ap-inativo') + '" data-fluxo="' + f.id + '" data-conexao="' + aparelho.id + '"' +
+            (podeEditar ? ' draggable="true" title="Arraste para outro aparelho para mudar quem atende este fluxo"' : '') + '>' +
+         (podeEditar ? '<i class="ti ti-grip-vertical wae-ap-alca"></i>' : '') +
+         '<div class="wae-ap-fluxo-info" data-abrir="1">' +
+            '<div class="wae-ap-fluxo-nome"><i class="ti ti-git-merge me-1"></i>' + e(f.nome) +
+               (f.avisos ? ' <span class="text-warning small" title="Pontos de atenção"><i class="ti ti-alert-triangle"></i>' + f.avisos + '</span>' : '') + '</div>' +
+            '<div class="wae-ap-fluxo-meta">' + e(gatilho) + ' · ' + f.blocos + ' bloco(s) · ' + e(f.date_mod || '') + '</div>' +
+         '</div>' +
+         '<label class="form-check form-switch m-0" title="' + (f.is_ativo ? 'Ativo: responde neste aparelho' : 'Inativo') + '">' +
+            '<input class="form-check-input" type="checkbox" data-ativar="1"' + (f.is_ativo ? ' checked' : '') + (podeEditar ? '' : ' disabled') + '>' +
+         '</label>' +
+         menu +
+      '</div>';
+   }
+
+   function desenharVisao() {
+      var caixa = $id('wae-cons-aparelhos');
+      if (!caixa) { return; }
+      if (!aparelhos.length) {
+         caixa.innerHTML = '<div class="col-12 text-secondary">Nenhum aparelho cadastrado. Conecte um número na aba Servidor.</div>';
+         return;
+      }
+
+      var destaque = 0;
+      try { destaque = parseInt(localStorage.getItem(CHAVE_CONEXAO) || '0', 10); } catch (x) { destaque = 0; }
+
+      caixa.innerHTML = aparelhos.map(function (a) {
+         var ativos = a.fluxos.filter(function (f) { return f.is_ativo; }).length;
+         var situacao = a.conectado
+            ? '<span class="badge bg-green-lt"><i class="ti ti-circle-check me-1"></i>Conectado</span>'
+            : (a.ligado ? '<span class="badge bg-yellow-lt"><i class="ti ti-qrcode me-1"></i>Aguardando pareamento</span>'
+                        : '<span class="badge bg-secondary-lt"><i class="ti ti-plug-off me-1"></i>Desligado</span>');
+
+         return '<div class="col-lg-6 col-xxl-4">' +
+            '<div class="card wae-ap-cartao' + (a.id === destaque && aparelhos.length > 1 ? ' wae-ap-destaque' : '') + '" data-aparelho="' + a.id + '">' +
+               '<div class="card-header">' +
+                  '<span class="wae-ap-icone ' + (a.conectado ? 'wae-ap-on' : '') + '"><i class="ti ti-device-mobile"></i></span>' +
+                  '<div class="wae-ap-titulo">' +
+                     '<div class="fw-bold">' + e(a.nome) + (a.padrao ? ' <span class="badge bg-yellow-lt ms-1" title="Aparelho padrão">Padrão</span>' : '') + '</div>' +
+                     '<div class="small text-secondary">' + (a.numero ? e(formatarNumero(a.numero)) : 'Sem aparelho pareado') + '</div>' +
+                  '</div>' +
+                  '<div class="ms-auto text-end">' + situacao +
+                     '<div class="small text-secondary mt-1">' + ativos + ' ativo(s) de ' + a.fluxos.length + '</div></div>' +
+               '</div>' +
+               '<div class="wae-ap-lista" data-soltar="' + a.id + '">' +
+                  (a.fluxos.length
+                     ? a.fluxos.map(function (f) { return htmlFluxoNaVisao(f, a); }).join('')
+                     : '<div class="wae-ap-vazio"><i class="ti ti-git-merge"></i><div>Nenhum fluxo neste aparelho.</div>' +
+                        (podeEditar ? '<div class="small">Crie um novo ou arraste um fluxo de outro aparelho para cá.</div>' : '') + '</div>') +
+               '</div>' +
+               (podeEditar ? '<div class="card-footer"><button type="button" class="btn btn-sm btn-outline-primary" data-novo-fluxo="' + a.id + '"><i class="ti ti-plus me-1"></i>Novo fluxo neste aparelho</button></div>' : '') +
+            '</div>' +
+         '</div>';
+      }).join('');
+   }
+
+   function carregarVisao() {
+      return WAE.pedir('fluxos_painel').then(function (r) {
+         if (!r.sucesso) { WAE.avisar(r.mensagem || 'Nao foi possivel carregar os aparelhos.', true); return; }
+         aparelhos = r.aparelhos || [];
+         gatilhosNomes = r.gatilhos || {};
+         desenharVisao();
+      });
+   }
+
+   function mostrarVisao() {
+      return salvarAgora().then(function () {
+         raiz.classList.add('wae-cons-modo-visao');
+         raiz.classList.remove('wae-cons-cheio');
+         var botaoCheio = $id('wae-cons-tela-cheia');
+         if (botaoCheio) { botaoCheio.querySelector('i').className = 'ti ti-maximize'; }
+         $id('wae-cons-teste').classList.add('wae-oculto');
+         $id('wae-cons-props').classList.remove('wae-oculto');
+         atual = null;
+         return carregarVisao();
+      });
+   }
+
+   /** Entra no editor com os blocos do fluxo escolhido (a tela precisa estar visivel antes de montar) */
+   function entrarNoFluxo(idConexao, idFluxo) {
+      escolherConexao(idConexao);
+      raiz.classList.remove('wae-cons-modo-visao');
+      return carregarLista(idFluxo);
+   }
+
+   function moverFluxo(id, destino) {
+      return WAE.pedir('fluxo_mover', { id: id, destino: destino }, 'POST').then(function (r) {
+         WAE.avisar(r.mensagem || '', !r.sucesso);
+         recarregarCatalogo();
+         return r;
+      });
+   }
+
+   function ligarVisao() {
+      var caixa = $id('wae-cons-aparelhos');
+
+      caixa.addEventListener('click', function (ev) {
+         var linha = ev.target.closest('[data-fluxo]');
+         var novo = ev.target.closest('[data-novo-fluxo]');
+
+         if (novo) {
+            var aparelho = parseInt(novo.getAttribute('data-novo-fluxo'), 10);
+            novo.disabled = true;
+            WAE.pedir('fluxo_criar', { nome: 'Novo fluxo', conexao: aparelho }, 'POST').then(function (r) {
+               novo.disabled = false;
+               WAE.avisar(r.mensagem || '', !r.sucesso);
+               if (r.sucesso) { recarregarCatalogo().then(function () { entrarNoFluxo(aparelho, r.id); }); }
+            });
+            return;
+         }
+         if (!linha) { return; }
+
+         var id = parseInt(linha.getAttribute('data-fluxo'), 10);
+         var origem = parseInt(linha.getAttribute('data-conexao'), 10);
+         var alvo;
+
+         if (ev.target.closest('[data-ativar]')) { return; }
+
+         if ((alvo = ev.target.closest('[data-mover]'))) {
+            ev.preventDefault();
+            moverFluxo(id, parseInt(alvo.getAttribute('data-mover'), 10)).then(carregarVisao);
+            return;
+         }
+         if ((alvo = ev.target.closest('[data-destino]'))) {
+            ev.preventDefault();
+            WAE.pedir('fluxo_duplicar', { id: id, destino: parseInt(alvo.getAttribute('data-destino'), 10) || 0 }, 'POST').then(function (r) {
+               WAE.avisar(r.mensagem || '', !r.sucesso);
+               recarregarCatalogo();
+               carregarVisao();
+            });
+            return;
+         }
+         if (ev.target.closest('[data-excluir]')) {
+            ev.preventDefault();
+            var nome = linha.querySelector('.wae-ap-fluxo-nome').textContent;
+            WAE.confirmar('Excluir o fluxo "' + nome.trim() + '"? Quem estiver no meio dele volta para o menu.').then(function (ok) {
+               if (!ok) { return; }
+               WAE.pedir('fluxo_remover', { id: id }, 'POST').then(function (r) {
+                  WAE.avisar(r.mensagem || '', !r.sucesso);
+                  recarregarCatalogo();
+                  carregarVisao();
+               });
+            });
+            return;
+         }
+         if (ev.target.closest('[data-abrir]')) {
+            ev.preventDefault();
+            entrarNoFluxo(origem, id);
+         }
+      });
+
+      caixa.addEventListener('change', function (ev) {
+         var chave = ev.target.closest('[data-ativar]');
+         if (!chave) { return; }
+         var linha = chave.closest('[data-fluxo]');
+         WAE.pedir('fluxo_ativar', { id: linha.getAttribute('data-fluxo'), ativo: chave.checked ? 1 : 0 }, 'POST').then(function (r) {
+            WAE.avisar(r.mensagem || '', !r.sucesso);
+            carregarVisao();
+         });
+      });
+
+      // Arrastar um fluxo para outro aparelho muda quem o atende
+      caixa.addEventListener('dragstart', function (ev) {
+         var linha = ev.target.closest && ev.target.closest('[data-fluxo]');
+         if (!linha) { return; }
+         arrastandoFluxo = parseInt(linha.getAttribute('data-fluxo'), 10);
+         linha.classList.add('wae-ap-arrastando');
+         ev.dataTransfer.effectAllowed = 'move';
+         try { ev.dataTransfer.setData('text/plain', String(arrastandoFluxo)); } catch (x) { /* navegador antigo */ }
+      });
+      caixa.addEventListener('dragend', function () {
+         arrastandoFluxo = 0;
+         caixa.querySelectorAll('.wae-ap-arrastando, .wae-ap-alvo').forEach(function (el) {
+            el.classList.remove('wae-ap-arrastando', 'wae-ap-alvo');
+         });
+      });
+      caixa.addEventListener('dragover', function (ev) {
+         var zona = ev.target.closest('.wae-ap-cartao');
+         if (!zona || !arrastandoFluxo) { return; }
+         ev.preventDefault();
+         ev.dataTransfer.dropEffect = 'move';
+         caixa.querySelectorAll('.wae-ap-alvo').forEach(function (el) { if (el !== zona) { el.classList.remove('wae-ap-alvo'); } });
+         zona.classList.add('wae-ap-alvo');
+      });
+      caixa.addEventListener('drop', function (ev) {
+         var zona = ev.target.closest('.wae-ap-cartao');
+         if (!zona || !arrastandoFluxo) { return; }
+         ev.preventDefault();
+         var destino = parseInt(zona.getAttribute('data-aparelho'), 10);
+         var id = arrastandoFluxo;
+         var linha = caixa.querySelector('[data-fluxo="' + id + '"]');
+         arrastandoFluxo = 0;
+         zona.classList.remove('wae-ap-alvo');
+         if (!linha || parseInt(linha.getAttribute('data-conexao'), 10) === destino) { return; }
+         moverFluxo(id, destino).then(carregarVisao);
+      });
+
+      $id('wae-cons-voltar').addEventListener('click', function () { mostrarVisao(); });
+   }
+
+   function ligarConexoes() {
+      var salvo = 0;
+      try { salvo = parseInt(localStorage.getItem(CHAVE_CONEXAO) || '0', 10); } catch (x) { salvo = 0; }
+      escolherConexao(salvo);
+      ligarVisao();
    }
 
    // ============================================
@@ -1109,6 +1335,16 @@
 
          // Duplicar no mesmo numero ou copiar para outro numero (a copia nasce inativa)
          $id('wae-cons-copiar-menu').addEventListener('click', function (ev) {
+            var mover = ev.target.closest('[data-mover]');
+            if (mover && atual) {
+               ev.preventDefault();
+               var destinoMover = parseInt(mover.getAttribute('data-mover'), 10);
+               var idMover = atual.id;
+               salvarAgora().then(function () { return moverFluxo(idMover, destinoMover); }).then(function (r) {
+                  if (r.sucesso) { entrarNoFluxo(destinoMover, idMover); }
+               });
+               return;
+            }
             var item = ev.target.closest('[data-destino]');
             if (!item || !atual) { return; }
             ev.preventDefault();
@@ -1394,7 +1630,7 @@
             ligarPropriedades();
             ligarBarra();
             ligarConexoes();
-            carregarLista();
+            mostrarVisao();
          });
       }
    };

@@ -2627,3 +2627,138 @@ td.wae-vazio {
 .wae-conversa-conexao {
    font-size: 10px;
 }
+/* ============================================
+   Aba Fluxos: visao por aparelho
+   ============================================ */
+
+.wae-construtor.wae-cons-modo-visao .wae-cons-barra,
+.wae-construtor.wae-cons-modo-visao .wae-cons-corpo,
+.wae-construtor:not(.wae-cons-modo-visao) .wae-cons-visao {
+   display: none;
+}
+
+.wae-cons-aparelho {
+   font-size: 12px;
+   padding: 5px 8px;
+}
+
+.wae-ap-cartao {
+   height: 100%;
+   border: 1px solid #dee2e6;
+   box-shadow: none;
+   overflow: visible;
+   transition: border-color 0.15s ease-in-out, background 0.15s ease-in-out;
+}
+
+.wae-ap-cartao .card-header {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+   padding: 10px 15px;
+   background: #f8f9fa;
+}
+
+.wae-ap-destaque {
+   border-color: #e5a54b;
+}
+
+.wae-ap-alvo {
+   border: 2px dashed #25d366;
+   background: rgba(25, 135, 84, 0.04);
+}
+
+.wae-ap-icone {
+   width: 34px;
+   height: 34px;
+   border-radius: 50%;
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   font-size: 18px;
+   background: #f0f0f0;
+   color: #999;
+   flex: 0 0 auto;
+}
+
+.wae-ap-icone.wae-ap-on {
+   background: rgba(25, 135, 84, 0.12);
+   color: #198754;
+}
+
+.wae-ap-titulo {
+   min-width: 0;
+}
+
+.wae-ap-lista {
+   min-height: 90px;
+   overflow: visible;
+}
+
+.wae-ap-fluxo {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   padding: 8px 10px;
+   border-bottom: 1px solid #f0f0f0;
+   background: #fff;
+}
+
+.wae-ap-fluxo:hover {
+   background: #f8f9fa;
+}
+
+.wae-ap-fluxo.wae-ap-inativo .wae-ap-fluxo-nome {
+   color: #999;
+}
+
+.wae-ap-fluxo.wae-ap-arrastando {
+   opacity: 0.4;
+}
+
+.wae-ap-alca {
+   color: #999;
+   cursor: grab;
+}
+
+.wae-ap-fluxo-info {
+   flex: 1 1 auto;
+   min-width: 0;
+   cursor: pointer;
+}
+
+.wae-ap-fluxo-nome {
+   font-size: 13px;
+   font-weight: 600;
+   color: #333;
+   white-space: nowrap;
+   overflow: hidden;
+   text-overflow: ellipsis;
+}
+
+.wae-ap-fluxo-info:hover .wae-ap-fluxo-nome {
+   color: #2f3f64;
+   text-decoration: underline;
+}
+
+.wae-ap-fluxo-meta {
+   font-size: 11px;
+   color: #6c757d;
+   white-space: nowrap;
+   overflow: hidden;
+   text-overflow: ellipsis;
+}
+
+.wae-ap-vazio {
+   padding: 20px 10px;
+   text-align: center;
+   color: #999;
+   font-size: 12px;
+}
+
+.wae-ap-vazio i {
+   font-size: 26px;
+}
+
+.wae-ap-cartao .card-footer {
+   padding: 8px 15px;
+}

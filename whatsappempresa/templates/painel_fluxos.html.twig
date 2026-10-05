@@ -1,19 +1,32 @@
 {# Aba Fluxos: construtor visual (arrastar e soltar). Cada alteracao e gravada na hora. #}
-<div class="card wae-construtor" id="wae-construtor" data-edita="{{ canedit ? 1 : 0 }}">
+{# Primeiro a visao por aparelho; ao entrar num fluxo, so os blocos dele aparecem no editor #}
+<div class="card wae-construtor wae-cons-modo-visao" id="wae-construtor" data-edita="{{ canedit ? 1 : 0 }}">
+
+   <div class="wae-cons-visao">
+      <div class="card-header">
+         <h3 class="card-title"><i class="ti ti-devices me-2"></i>Aparelhos e fluxos</h3>
+         <span class="ms-auto text-secondary small" title="Cada aparelho responde só com os fluxos dele. Arraste um fluxo para outro aparelho (ou use o menu ⋮) para mudar quem o atende. Clique no fluxo para ver e editar os blocos.">
+            <i class="ti ti-info-circle me-1"></i>Clique num fluxo para editar os blocos{% if canedit %} · arraste entre aparelhos para mudar quem atende{% endif %}
+         </span>
+      </div>
+      <div class="card-body">
+         <div class="row g-3" id="wae-cons-aparelhos">
+            <div class="col-12 text-secondary"><i class="ti ti-loader-2 me-1"></i>Carregando aparelhos...</div>
+         </div>
+      </div>
+   </div>
 
    <div class="card-header wae-cons-barra">
       <div class="d-flex flex-wrap align-items-center gap-2 w-100">
-         <div class="d-flex align-items-center gap-2 wae-oculto" id="wae-cons-conexao-caixa">
-            <i class="ti ti-device-mobile fs-2 text-secondary"></i>
-            <select class="form-select form-select-sm wae-cons-seletor-conexao" id="wae-cons-conexao" title="Número de WhatsApp: cada número tem os seus fluxos"></select>
-         </div>
+         <button type="button" class="btn btn-sm btn-outline-secondary" id="wae-cons-voltar" title="Voltar para a lista de aparelhos e fluxos"><i class="ti ti-arrow-left me-1"></i>Aparelhos</button>
+         <span class="badge bg-green-lt wae-cons-aparelho" id="wae-cons-aparelho" title="Aparelho que atende os fluxos desta lista"></span>
          <i class="ti ti-git-merge fs-2 text-secondary"></i>
          <select class="form-select form-select-sm wae-cons-seletor" id="wae-cons-fluxo" title="Fluxo em edição"></select>
 
          {% if canedit %}
          <div class="btn-group btn-group-sm">
             <button type="button" class="btn btn-outline-secondary" id="wae-cons-novo" title="Novo fluxo"><i class="ti ti-plus"></i><span class="d-none d-xl-inline ms-1">Novo</span></button>
-            <button type="button" class="btn btn-outline-secondary dropdown-toggle" id="wae-cons-duplicar" data-bs-toggle="dropdown" title="Duplicar ou copiar para outro número"><i class="ti ti-copy"></i></button>
+            <button type="button" class="btn btn-outline-secondary dropdown-toggle" id="wae-cons-duplicar" data-bs-toggle="dropdown" title="Duplicar, copiar ou mover para outro aparelho"><i class="ti ti-copy"></i></button>
             <div class="dropdown-menu" id="wae-cons-copiar-menu"></div>
             <button type="button" class="btn btn-outline-danger" id="wae-cons-excluir" title="Excluir fluxo"><i class="ti ti-trash"></i></button>
          </div>
