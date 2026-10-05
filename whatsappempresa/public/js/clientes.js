@@ -1,6 +1,9 @@
 /**
  * whatsappempresa - aba Clientes: entidades do autoatendimento, codigos de acesso e contatos.
- * Cada alteracao e gravada na hora (sem botao salvar) e vale na proxima mensagem recebida.
+ *
+ * As alteracoes ficam como rascunho na tela ate o botao Salvar (do cliente ou "Salvar tudo").
+ * O servidor valida o cliente inteiro antes de gravar: com qualquer erro nada e gravado e a
+ * linha com problema fica destacada.
  */
 (function () {
    'use strict';
@@ -8,11 +11,16 @@
    var raiz = null;
    var podeEditar = false;
    var clientes = [];
-   var abertos = {};
    var categorias = [];
    var botoesDisponivel = false;
+   var sujos = {};          // entities_id -> true quando ha alteracao nao salva
+   var removidos = {};      // entities_id -> { codigos: [ids], contatos: [ids] }
 
    function e(texto) { return WAE.escapar(texto); }
+
+   function ajuda(texto) {
+      return ' <span class="wae-ajuda" tabindex="0" title="' + e(texto) + '"><i class="ti ti-info-circle"></i></span>';
+   }
 
    /** <option>s de uma lista [{id, nome}] com a primeira opcao "vazia" */
    function opcoes(lista, atual, rotuloVazio, campoValor) {
@@ -25,227 +33,31 @@
    }
 
    /** Setor: lista do plugin Botoes quando houver; sem lista, texto livre (maiusculas, como no Botoes) */
-   function campoSetor(cliente, atual, rotuloVazio, atributos) {
+   function campoSetor(cliente, atual, rotuloVazio, atributos, pequeno) {
       var setores = (cliente.botoes && cliente.botoes.setores) || [];
+      var tamanho = pequeno ? ' form-select-sm' : '';
       if (setores.length) {
-         return '<select class="form-select form-select-sm" ' + atributos + '>' + opcoes(setores, atual, rotuloVazio, 'nome') + '</select>';
+         return '<select class="form-select' + tamanho + '" ' + atributos + '>' + opcoes(setores, atual, rotuloVazio, 'nome') + '</select>';
       }
-      return '<input type="text" class="form-control form-control-sm text-uppercase" ' + atributos + ' value="' + e(atual) + '" placeholder="' + e(rotuloVazio) + '" maxlength="255">';
+      return '<input type="text" class="form-control' + (pequeno ? ' form-control-sm' : '') + ' text-uppercase" ' + atributos +
+         ' value="' + e(atual) + '" placeholder="' + e(rotuloVazio) + '" maxlength="255">';
    }
 
    function formatarTelefone(valor) {
-      var d = String(valor || '').replace(/\D/g, '').slice(0, 11);
+      var d = String(valor || '').replace(/\D/g, '');
+      if (d.length > 11 && d.indexOf('55') === 0) { d = d.slice(2); }
+      d = d.slice(0, 11);
       if (d.length <= 2) { return d.length ? '(' + d : ''; }
       if (d.length <= 6) { return '(' + d.slice(0, 2) + ') ' + d.slice(2); }
       if (d.length <= 10) { return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6); }
       return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
    }
 
-   /** Marca o campo como gravado (borda verde por um instante) ou com erro */
-   function sinalizar(campo, ok) {
-      if (!campo) { return; }
-      campo.classList.remove('wae-salvo', 'is-invalid');
-      void campo.offsetWidth;
-      campo.classList.add(ok ? 'wae-salvo' : 'is-invalid');
-      if (ok) { setTimeout(function () { campo.classList.remove('wae-salvo'); }, 1200); }
-   }
-
-   function carregar() {
-      return WAE.pedir('clientes_listar').then(function (r) {
-         if (!r.sucesso) {
-            WAE.avisar(r.mensagem || 'Nao foi possivel carregar os clientes.', true);
-            return;
-         }
-         clientes = r.itens || [];
-         categorias = r.categorias || [];
-         botoesDisponivel = !!r.botoes_disponivel;
-         desenhar();
-      });
-   }
-
-   function filtro() {
-      var campo = document.getElementById('wae-cli-busca');
-      return campo ? campo.value.trim().toLowerCase() : '';
-   }
-
-   function combina(cliente, termo) {
-      if (!termo) { return true; }
-      var alvo = [cliente.entidade, cliente.requerente, cliente.observacao]
-         .concat(cliente.codigos.map(function (c) { return c.codigo + ' ' + c.descricao; }))
-         .concat(cliente.contatos.map(function (c) { return c.nome + ' ' + c.telefone; }))
-         .join(' ').toLowerCase();
-      return alvo.indexOf(termo) >= 0;
-   }
-
-   function desenhar() {
-      var lista = document.getElementById('wae-cli-lista');
-      if (!lista) { return; }
-
-      var termo = filtro();
-      var visiveis = clientes.filter(function (c) { return combina(c, termo); });
-
-      if (!clientes.length) {
-         lista.innerHTML = '<div class="list-group-item text-center text-secondary py-4">' +
-            '<i class="ti ti-building fs-1 d-block mb-2"></i>Nenhum cliente cadastrado ainda.' +
-            (podeEditar ? '<br>Escolha a entidade acima e clique em Adicionar.' : '') + '</div>';
-         return;
+   function nomeNaLista(lista, id) {
+      for (var i = 0; i < lista.length; i++) {
+         if (String(lista[i].id) === String(id)) { return lista[i].nome; }
       }
-      if (!visiveis.length) {
-         lista.innerHTML = '<div class="list-group-item text-secondary">Nenhum cliente corresponde a busca.</div>';
-         return;
-      }
-
-      lista.innerHTML = visiveis.map(htmlCliente).join('');
-
-      visiveis.forEach(function (c) {
-         if (abertos[c.entities_id]) { carregarRequerente(c.entities_id); }
-      });
-   }
-
-   function htmlCliente(c) {
-      var aberto = !!abertos[c.entities_id];
-      var dis = podeEditar ? '' : ' disabled';
-      var ativos = c.codigos.filter(function (x) { return x.is_ativo; }).map(function (x) { return x.codigo; });
-
-      var cabecalho =
-         '<div class="d-flex align-items-center gap-3 wae-cli-topo" data-alternar="' + c.entities_id + '">' +
-            '<i class="ti ' + (aberto ? 'ti-chevron-down' : 'ti-chevron-right') + ' text-secondary"></i>' +
-            '<div class="flex-fill">' +
-               '<div class="fw-bold">' + e(c.entidade) + (c.is_ativo ? '' : ' <span class="badge bg-secondary-lt ms-1">Inativo</span>') + '</div>' +
-               '<div class="small text-secondary">' +
-                  '<i class="ti ti-key me-1"></i>' + (ativos.length ? ativos.map(e).join(', ') : 'sem código ativo') +
-                  '<span class="mx-2">·</span><i class="ti ti-address-book me-1"></i>' + c.contatos.length + ' contato(s)' +
-                  '<span class="mx-2">·</span><i class="ti ti-user me-1"></i>' + (c.requerente ? e(c.requerente) : '<span class="text-warning">sem requerente padrão</span>') +
-               '</div>' +
-            '</div>' +
-            '<label class="form-check form-switch m-0" title="Cliente ativo no autoatendimento" data-parar>' +
-               '<input class="form-check-input" type="checkbox" data-cli-ativo="' + c.entities_id + '"' + (c.is_ativo ? ' checked' : '') + dis + '>' +
-            '</label>' +
-            (podeEditar ? '<button type="button" class="btn btn-sm btn-ghost-danger" data-cli-remover="' + c.entities_id + '" title="Remover cliente" data-parar><i class="ti ti-trash"></i></button>' : '') +
-         '</div>';
-
-      if (!aberto) {
-         return '<div class="list-group-item" data-cliente="' + c.entities_id + '">' + cabecalho + '</div>';
-      }
-
-      var comBotoes = botoesDisponivel && !!c.usar_botoes;
-      var unidades = (c.botoes && c.botoes.unidades) || [];
-
-      var codigos = c.codigos.map(function (k) {
-         return '<tr data-codigo="' + k.id + '">' +
-            '<td><input type="text" class="form-control form-control-sm font-monospace" data-campo="codigo" value="' + e(k.codigo) + '" maxlength="60"' + dis + '></td>' +
-            '<td><input type="text" class="form-control form-control-sm" data-campo="descricao" value="' + e(k.descricao) + '" placeholder="Opcional"' + dis + '></td>' +
-            '<td><select class="form-select form-select-sm" data-campo="itilcategories_id"' + dis + '>' + opcoes(categorias, k.itilcategories_id, 'Categoria do cliente') + '</select></td>' +
-            (comBotoes
-               ? '<td><select class="form-select form-select-sm" data-campo="unidade_id"' + dis + '>' + opcoes(unidades, k.unidade_id, 'Unidade do cliente') + '</select></td>' +
-                 '<td>' + campoSetor(c, k.setor, 'Setor do cliente', 'data-campo="setor"' + dis) + '</td>'
-               : '') +
-            '<td class="text-center"><input class="form-check-input" type="checkbox" data-campo="is_ativo"' + (k.is_ativo ? ' checked' : '') + dis + '></td>' +
-            '<td class="text-end">' + (podeEditar ? '<button type="button" class="btn btn-sm btn-ghost-danger" data-remover-codigo="' + k.id + '"><i class="ti ti-x"></i></button>' : '') + '</td>' +
-         '</tr>';
-      }).join('');
-      var colunasCodigo = comBotoes ? 7 : 5;
-
-      var contatos = c.contatos.map(function (k) {
-         return '<tr data-contato="' + k.id + '">' +
-            '<td><input type="text" class="form-control form-control-sm" data-campo="nome" value="' + e(k.nome) + '" maxlength="100"' + dis + '></td>' +
-            '<td><input type="text" class="form-control form-control-sm" data-campo="telefone" data-mascara value="' + e(formatarTelefone(k.telefone)) + '"' + dis + '></td>' +
-            '<td class="text-center"><input class="form-check-input" type="checkbox" data-campo="is_ativo"' + (k.is_ativo ? ' checked' : '') + dis + '></td>' +
-            '<td class="text-end">' + (podeEditar ? '<button type="button" class="btn btn-sm btn-ghost-danger" data-remover-contato="' + k.id + '"><i class="ti ti-x"></i></button>' : '') + '</td>' +
-         '</tr>';
-      }).join('');
-
-      var blocoBotoes;
-      if (!botoesDisponivel) {
-         blocoBotoes = '<div class="text-secondary small"><i class="ti ti-info-circle me-1"></i>O plugin Botões não está ativo: Unidade e Setor não estão disponíveis.</div>';
-      } else {
-         blocoBotoes =
-            '<label class="form-check form-switch mb-2">' +
-               '<input class="form-check-input" type="checkbox" data-cli-campo="usar_botoes"' + (c.usar_botoes ? ' checked' : '') + dis + '>' +
-               '<span class="form-check-label">Preencher Unidade e Setor nos chamados</span>' +
-            '</label>' +
-            (c.usar_botoes
-               ? '<label class="form-label">Unidade</label>' +
-                 (unidades.length
-                    ? '<select class="form-select mb-1" data-cli-campo="unidade_id"' + dis + '>' + opcoes(unidades, c.unidade_id, 'Sem unidade') + '</select>'
-                    : '<div class="text-warning small mb-1"><i class="ti ti-alert-triangle me-1"></i>Nenhuma unidade cadastrada para esta entidade no plugin Botões.</div>') +
-                 '<label class="form-label mt-2">Setor</label>' +
-                 campoSetor(c, c.setor, (c.botoes.setores || []).length ? 'Sem setor' : 'Texto livre (entidade sem setores no Botões)', 'data-cli-campo="setor"' + dis) +
-                 '<div class="form-hint mt-2">Lidos do cadastro "Dados do cliente" do plugin Botões. Cada código abaixo pode usar outra unidade e outro setor.</div>'
-               : '<div class="form-hint">Desligado: os chamados abertos pelo WhatsApp não recebem Unidade e Setor.</div>');
-      }
-
-      var corpo =
-         '<div class="row g-4 mt-1 wae-cli-corpo">' +
-            '<div class="col-xl-4">' +
-               '<h4 class="wae-cli-titulo"><i class="ti ti-user-cog me-1"></i>Atendimento</h4>' +
-               '<label class="form-label">Requerente padrão dos chamados</label>' +
-               '<div class="mb-1" data-requerente="' + c.entities_id + '"><span class="text-secondary small">Carregando...</span></div>' +
-               '<div class="form-hint mb-3">Usado quando quem fala é um contato sem usuário no GLPI.</div>' +
-               '<label class="form-label">Categoria dos chamados</label>' +
-               '<select class="form-select mb-1" data-cli-campo="itilcategories_id"' + dis + '>' + opcoes(categorias, c.itilcategories_id, 'Padrão da aba Regras') + '</select>' +
-               '<div class="form-hint mb-3">Um bloco "Abrir registro" com categoria própria no fluxo tem prioridade.</div>' +
-               '<label class="form-label">Observação interna</label>' +
-               '<input type="text" class="form-control" data-cli-obs="' + c.entities_id + '" value="' + e(c.observacao) + '" maxlength="255"' + dis + '>' +
-            '</div>' +
-            '<div class="col-xl-4">' +
-               '<h4 class="wae-cli-titulo"><i class="ti ti-building-community me-1"></i>Unidade e Setor (plugin Botões)</h4>' +
-               blocoBotoes +
-            '</div>' +
-            '<div class="col-xl-4">' +
-               '<h4 class="wae-cli-titulo"><i class="ti ti-address-book me-1"></i>Contatos (WhatsApp)</h4>' +
-               '<table class="table table-sm table-vcenter mb-2"><thead><tr><th>Nome</th><th>Telefone</th><th class="text-center">Ativo</th><th></th></tr></thead>' +
-               '<tbody>' + (contatos || '<tr><td colspan="4" class="text-secondary small">Nenhum contato.</td></tr>') + '</tbody></table>' +
-               (podeEditar ?
-                  '<div class="input-group input-group-sm">' +
-                     '<input type="text" class="form-control" data-novo-contato-nome placeholder="Nome" maxlength="100">' +
-                     '<input type="text" class="form-control" data-novo-contato-tel data-mascara placeholder="(71) 99999-9999">' +
-                     '<button type="button" class="btn btn-primary" data-add-contato><i class="ti ti-plus"></i></button>' +
-                  '</div>' : '') +
-            '</div>' +
-            '<div class="col-12">' +
-               '<h4 class="wae-cli-titulo"><i class="ti ti-key me-1"></i>Códigos de acesso</h4>' +
-               '<div class="table-responsive"><table class="table table-sm table-vcenter mb-2"><thead><tr>' +
-                  '<th>Código</th><th>Descrição</th><th>Categoria</th>' + (comBotoes ? '<th>Unidade</th><th>Setor</th>' : '') +
-                  '<th class="text-center">Ativo</th><th></th></tr></thead>' +
-               '<tbody>' + (codigos || '<tr><td colspan="' + colunasCodigo + '" class="text-secondary small">Nenhum código.</td></tr>') + '</tbody></table></div>' +
-               (podeEditar ?
-                  '<div class="input-group input-group-sm wae-cli-novo-codigo">' +
-                     '<input type="text" class="form-control font-monospace" data-novo-codigo placeholder="Novo código" maxlength="60">' +
-                     '<button type="button" class="btn btn-outline-secondary" data-gerar-codigo title="Gerar código"><i class="ti ti-wand"></i></button>' +
-                     '<button type="button" class="btn btn-primary" data-add-codigo><i class="ti ti-plus me-1"></i>Adicionar código</button>' +
-                  '</div>' : '') +
-               '<div class="form-hint mt-1">Sem categoria, unidade ou setor no código, valem os do cliente. Um código por unidade faz cada equipe abrir chamados já na unidade certa.</div>' +
-            '</div>' +
-         '</div>';
-
-      return '<div class="list-group-item wae-cli-aberto" data-cliente="' + c.entities_id + '">' + cabecalho + corpo + '</div>';
-   }
-
-   /** Campo nativo de usuario do GLPI (select2) vindo do servidor */
-   function carregarRequerente(entities_id) {
-      var alvo = raiz.querySelector('[data-requerente="' + entities_id + '"]');
-      if (!alvo) { return; }
-
-      // POST: o campo registra um token de seguranca na sessao
-      WAE.pedir('cliente_requerente', { entities_id: entities_id }, 'POST').then(function (r) {
-         if (!r.sucesso) { alvo.innerHTML = '<span class="text-danger small">Nao foi possivel carregar.</span>'; return; }
-         $(alvo).html(r.html);
-         if (!podeEditar) { $(alvo).find('select').prop('disabled', true); }
-         $(alvo).find('select').on('change', function () {
-            var campo = this;
-            WAE.pedir('cliente_salvar', { entities_id: entities_id, users_id_requerente: $(campo).val() || 0 }, 'POST').then(function (resp) {
-               if (!resp.sucesso) { WAE.avisar('Nao foi possivel gravar o requerente.', true); return; }
-               var cliente = acharCliente(entities_id);
-               if (cliente) {
-                  cliente.users_id_requerente = parseInt($(campo).val() || '0', 10);
-                  cliente.requerente = $(campo).find('option:selected').text() || '';
-               }
-               atualizarResumo(entities_id);
-               WAE.avisar('Requerente padrão atualizado.');
-            });
-         });
-      });
+      return '';
    }
 
    function acharCliente(entities_id) {
@@ -255,83 +67,391 @@
       return null;
    }
 
-   /** Atualiza so a linha de resumo, sem redesenhar os campos abertos */
-   function atualizarResumo(entities_id) {
-      var cliente = acharCliente(entities_id);
-      var item = raiz.querySelector('[data-cliente="' + entities_id + '"]');
-      if (!cliente || !item) { return; }
-      var temp = document.createElement('div');
-      temp.innerHTML = htmlCliente(cliente);
-      var novoTopo = temp.querySelector('.wae-cli-topo');
-      var topo = item.querySelector('.wae-cli-topo');
-      if (novoTopo && topo) { topo.replaceWith(novoTopo); }
+   function itemDe(entities_id) {
+      return raiz.querySelector('.wae-cli-item[data-cliente="' + entities_id + '"]');
    }
 
-   function salvarCodigo(entities_id, linha) {
-      var dados = {
-         entities_id: entities_id,
-         id: linha.getAttribute('data-codigo'),
-         codigo: linha.querySelector('[data-campo="codigo"]').value.trim(),
-         descricao: linha.querySelector('[data-campo="descricao"]').value.trim(),
-         is_ativo: linha.querySelector('[data-campo="is_ativo"]').checked ? 1 : 0
-      };
-      // Categoria, Unidade e Setor proprios do codigo (so os que estao na tela)
-      ['itilcategories_id', 'unidade_id', 'setor'].forEach(function (campo) {
-         var el = linha.querySelector('[data-campo="' + campo + '"]');
-         if (el) { dados[campo] = el.value; }
-      });
-      return WAE.pedir('codigo_salvar', dados, 'POST').then(function (r) {
-         var campo = linha.querySelector('[data-campo="codigo"]');
-         if (!r.sucesso) {
-            sinalizar(campo, false);
-            WAE.avisar(r.mensagem || 'Nao foi possivel gravar o codigo.', true);
-            return;
-         }
-         sinalizar(campo, true);
-         var cliente = acharCliente(entities_id);
-         if (cliente) {
-            cliente.codigos.forEach(function (k) {
-               if (String(k.id) === String(dados.id)) {
-                  k.codigo = dados.codigo; k.descricao = dados.descricao; k.is_ativo = dados.is_ativo;
-                  if (dados.itilcategories_id !== undefined) { k.itilcategories_id = parseInt(dados.itilcategories_id, 10) || 0; }
-                  if (dados.unidade_id !== undefined) { k.unidade_id = parseInt(dados.unidade_id, 10) || 0; }
-                  if (dados.setor !== undefined) { k.setor = dados.setor; }
-               }
-            });
-            atualizarResumo(entities_id);
-         }
+   function ativarDicas(alvo) {
+      if (!window.bootstrap || !window.bootstrap.Tooltip) { return; }
+      alvo.querySelectorAll('.wae-ajuda[title]').forEach(function (el) {
+         window.bootstrap.Tooltip.getOrCreateInstance(el, { placement: 'top' });
       });
    }
 
-   function salvarContato(entities_id, linha) {
-      var dados = {
-         entities_id: entities_id,
-         id: linha.getAttribute('data-contato'),
-         nome: linha.querySelector('[data-campo="nome"]').value.trim(),
-         telefone: linha.querySelector('[data-campo="telefone"]').value,
-         is_ativo: linha.querySelector('[data-campo="is_ativo"]').checked ? 1 : 0
-      };
-      return WAE.pedir('contato_salvar', dados, 'POST').then(function (r) {
-         var campo = linha.querySelector('[data-campo="telefone"]');
-         if (!r.sucesso) {
-            sinalizar(campo, false);
-            WAE.avisar(r.mensagem || 'Nao foi possivel gravar o contato.', true);
-            return;
-         }
-         sinalizar(campo, true);
-         sinalizar(linha.querySelector('[data-campo="nome"]'), true);
+   // ============================================
+   // Desenho
+   // ============================================
+
+   function htmlResumo(c) {
+      var ativos = c.codigos.filter(function (x) { return x.is_ativo; }).map(function (x) { return x.codigo; });
+      var partes = [
+         '<span><i class="ti ti-key"></i>' + (ativos.length ? ativos.map(e).join(', ') : '<span class="text-warning">sem código ativo</span>') + '</span>',
+         '<span><i class="ti ti-address-book"></i>' + c.contatos.length + ' contato(s)</span>',
+         '<span><i class="ti ti-user"></i>' + (c.requerente ? e(c.requerente) : '<span class="text-warning">sem requerente padrão</span>') + '</span>'
+      ];
+      if (c.itilcategories_id) {
+         partes.push('<span><i class="ti ti-category"></i>' + e(nomeNaLista(categorias, c.itilcategories_id)) + '</span>');
+      }
+      if (botoesDisponivel && c.usar_botoes) {
+         var unidade = nomeNaLista((c.botoes && c.botoes.unidades) || [], c.unidade_id);
+         partes.push('<span><i class="ti ti-building-community"></i>' + e(unidade || 'sem unidade') + (c.setor ? ' · ' + e(c.setor) : '') + '</span>');
+      }
+      return partes.join('');
+   }
+
+   function htmlItem(c) {
+      var dis = podeEditar ? '' : ' disabled';
+      return '<div class="wae-cli-item' + (c.is_ativo ? '' : ' wae-cli-inativo') + (botoesDisponivel && c.usar_botoes ? ' wae-cli-com-botoes' : '') +
+         '" data-cliente="' + c.entities_id + '">' +
+         '<div class="wae-cli-topo" data-alternar>' +
+            '<span class="wae-cli-avatar"><i class="ti ti-building"></i></span>' +
+            '<div class="wae-cli-info">' +
+               '<div class="wae-cli-nome">' + e(c.entidade) +
+                  '<span class="badge bg-secondary-lt wae-cli-selo-inativo">Inativo</span>' +
+                  '<span class="badge bg-yellow-lt wae-cli-selo-sujo"><i class="ti ti-pencil me-1"></i>Não salvo</span>' +
+               '</div>' +
+               '<div class="wae-cli-resumo">' + htmlResumo(c) + '</div>' +
+            '</div>' +
+            '<label class="form-check form-switch m-0" title="Cliente ativo no autoatendimento" data-parar>' +
+               '<input class="form-check-input" type="checkbox" data-cli="is_ativo"' + (c.is_ativo ? ' checked' : '') + dis + '>' +
+            '</label>' +
+            (podeEditar ? '<button type="button" class="btn btn-sm btn-ghost-danger" data-cli-remover title="Remover cliente" data-parar><i class="ti ti-trash"></i></button>' : '') +
+            '<i class="ti ti-chevron-down wae-cli-seta"></i>' +
+         '</div>' +
+         '<div class="wae-cli-corpo"></div>' +
+      '</div>';
+   }
+
+   function linhaCodigo(c, k) {
+      var dis = podeEditar ? '' : ' disabled';
+      var unidades = (c.botoes && c.botoes.unidades) || [];
+      return '<tr data-codigo-linha data-id="' + (k.id || 0) + '">' +
+         '<td><input type="text" class="form-control form-control-sm font-monospace" data-f="codigo" value="' + e(k.codigo) + '" maxlength="60"' + dis + '></td>' +
+         '<td><input type="text" class="form-control form-control-sm" data-f="descricao" value="' + e(k.descricao) + '" placeholder="Descrição"' + dis + '></td>' +
+         '<td><select class="form-select form-select-sm" data-f="itilcategories_id"' + dis + '>' + opcoes(categorias, k.itilcategories_id, 'Do cliente') + '</select></td>' +
+         '<td class="wae-so-botoes"><select class="form-select form-select-sm" data-f="unidade_id"' + dis + '>' + opcoes(unidades, k.unidade_id, 'Do cliente') + '</select></td>' +
+         '<td class="wae-so-botoes">' + campoSetor(c, k.setor, 'Do cliente', 'data-f="setor"' + dis, true) + '</td>' +
+         '<td class="text-center"><label class="form-check form-switch m-0 d-inline-block"><input class="form-check-input" type="checkbox" data-f="is_ativo"' + (k.is_ativo ? ' checked' : '') + dis + '></label></td>' +
+         '<td class="text-end">' + (podeEditar ? '<button type="button" class="btn btn-sm btn-ghost-danger" data-remover-linha title="Remover"><i class="ti ti-x"></i></button>' : '') + '</td>' +
+      '</tr>';
+   }
+
+   function linhaContato(k) {
+      var dis = podeEditar ? '' : ' disabled';
+      return '<tr data-contato-linha data-id="' + (k.id || 0) + '">' +
+         '<td><input type="text" class="form-control form-control-sm" data-f="nome" value="' + e(k.nome) + '" placeholder="Nome" maxlength="100"' + dis + '></td>' +
+         '<td><input type="text" class="form-control form-control-sm" data-f="telefone" data-mascara value="' + e(formatarTelefone(k.telefone)) + '" placeholder="(71) 99999-9999"' + dis + '></td>' +
+         '<td class="text-center"><label class="form-check form-switch m-0 d-inline-block"><input class="form-check-input" type="checkbox" data-f="is_ativo"' + (k.is_ativo ? ' checked' : '') + dis + '></label></td>' +
+         '<td class="text-end">' + (podeEditar ? '<button type="button" class="btn btn-sm btn-ghost-danger" data-remover-linha title="Remover"><i class="ti ti-x"></i></button>' : '') + '</td>' +
+      '</tr>';
+   }
+
+   function htmlCorpo(c) {
+      var dis = podeEditar ? '' : ' disabled';
+      var unidades = (c.botoes && c.botoes.unidades) || [];
+      var setores = (c.botoes && c.botoes.setores) || [];
+
+      var botoes = !botoesDisponivel
+         ? '<div class="text-secondary small"><i class="ti ti-plug-off me-1"></i>Plugin Botões inativo.</div>'
+         : '<div class="row g-3 wae-so-botoes">' +
+              '<div class="col-md-6"><label class="form-label">Unidade' + ajuda('Unidades cadastradas para esta entidade em "Dados do cliente" do plugin Botões.') + '</label>' +
+                 (unidades.length
+                    ? '<select class="form-select" data-cli="unidade_id"' + dis + '>' + opcoes(unidades, c.unidade_id, 'Sem unidade') + '</select>'
+                    : '<div class="form-control-plaintext text-warning small"><i class="ti ti-alert-triangle me-1"></i>Nenhuma unidade cadastrada no Botões.</div>') +
+              '</div>' +
+              '<div class="col-md-6"><label class="form-label">Setor' + ajuda(setores.length
+                 ? 'Setores cadastrados para esta entidade no plugin Botões.'
+                 : 'A entidade não tem setores no Botões: digite o setor (fica em maiúsculas, como no Botões).') + '</label>' +
+                 campoSetor(c, c.setor, setores.length ? 'Sem setor' : 'Digite o setor', 'data-cli="setor"' + dis, false) +
+              '</div>' +
+           '</div>';
+
+      return '' +
+         '<div class="wae-cli-secao">' +
+            '<div class="wae-cli-secao-titulo"><i class="ti ti-user-cog"></i>Atendimento</div>' +
+            '<div class="row g-3">' +
+               '<div class="col-lg-4"><label class="form-label">Requerente padrão' + ajuda('Usuário do GLPI em nome de quem são abertos os chamados dos contatos sem usuário próprio.') + '</label>' +
+                  '<div data-requerente><span class="text-secondary small">Carregando...</span></div></div>' +
+               '<div class="col-lg-4"><label class="form-label">Categoria dos chamados' + ajuda('Categoria dos chamados abertos pelo WhatsApp. Vazio: usa a da aba Regras. Um bloco "Abrir registro" com categoria própria tem prioridade.') + '</label>' +
+                  '<select class="form-select" data-cli="itilcategories_id"' + dis + '>' + opcoes(categorias, c.itilcategories_id, 'Padrão da aba Regras') + '</select></div>' +
+               '<div class="col-lg-4"><label class="form-label">Observação interna' + ajuda('Anotação visível só nesta tela.') + '</label>' +
+                  '<input type="text" class="form-control" data-cli="observacao" value="' + e(c.observacao) + '" maxlength="255"' + dis + '></div>' +
+            '</div>' +
+         '</div>' +
+
+         '<div class="wae-cli-secao">' +
+            '<div class="wae-cli-secao-titulo"><i class="ti ti-building-community"></i>Unidade e Setor' +
+               ajuda('Quando ligado, os chamados abertos pelo WhatsApp recebem Unidade e Setor nos campos adicionais do plugin Botões. Cada código pode usar outros.') +
+               (botoesDisponivel ? '<label class="form-check form-switch m-0 ms-auto"><input class="form-check-input" type="checkbox" data-cli="usar_botoes"' + (c.usar_botoes ? ' checked' : '') + dis + '>' +
+                  '<span class="form-check-label">Preencher nos chamados</span></label>' : '') +
+            '</div>' +
+            botoes +
+         '</div>' +
+
+         '<div class="wae-cli-secao">' +
+            '<div class="wae-cli-secao-titulo"><i class="ti ti-key"></i>Códigos de acesso' +
+               ajuda('O cliente envia o código no WhatsApp para ser atendido. Categoria, unidade e setor vazios no código usam os do cliente; um código por unidade faz cada equipe abrir chamados já na unidade certa.') +
+               (podeEditar ? '<button type="button" class="btn btn-sm btn-outline-primary ms-auto" data-add-codigo><i class="ti ti-plus me-1"></i>Novo código</button>' : '') +
+            '</div>' +
+            '<div class="table-responsive"><table class="table table-sm table-vcenter wae-cli-tabela mb-0"><thead><tr>' +
+               '<th>Código</th><th>Descrição</th><th>Categoria</th><th class="wae-so-botoes">Unidade</th><th class="wae-so-botoes">Setor</th><th class="text-center">Ativo</th><th></th>' +
+            '</tr></thead><tbody data-codigos>' + c.codigos.map(function (k) { return linhaCodigo(c, k); }).join('') + '</tbody></table></div>' +
+            '<div class="wae-cli-vazio" data-vazio-codigos' + (c.codigos.length ? ' hidden' : '') + '>Nenhum código.</div>' +
+         '</div>' +
+
+         '<div class="wae-cli-secao">' +
+            '<div class="wae-cli-secao-titulo"><i class="ti ti-address-book"></i>Contatos' +
+               ajuda('Pessoas atendidas pelo telefone mesmo sem usuário no GLPI. Os chamados saem em nome do requerente padrão, com o nome e o telefone do contato.') +
+               (podeEditar ? '<button type="button" class="btn btn-sm btn-outline-primary ms-auto" data-add-contato><i class="ti ti-plus me-1"></i>Novo contato</button>' : '') +
+            '</div>' +
+            '<div class="table-responsive"><table class="table table-sm table-vcenter wae-cli-tabela mb-0"><thead><tr>' +
+               '<th>Nome</th><th>Telefone (WhatsApp)</th><th class="text-center">Ativo</th><th></th>' +
+            '</tr></thead><tbody data-contatos>' + c.contatos.map(linhaContato).join('') + '</tbody></table></div>' +
+            '<div class="wae-cli-vazio" data-vazio-contatos' + (c.contatos.length ? ' hidden' : '') + '>Nenhum contato.</div>' +
+         '</div>' +
+
+         (podeEditar ?
+            '<div class="wae-cli-rodape">' +
+               '<span class="wae-cli-estado text-secondary small"><i class="ti ti-circle-check me-1"></i>Sem alterações</span>' +
+               '<button type="button" class="btn btn-sm btn-outline-secondary ms-auto" data-descartar disabled><i class="ti ti-arrow-back-up me-1"></i>Descartar</button>' +
+               '<button type="button" class="btn btn-sm wae-btn-salvar" data-salvar disabled><i class="ti ti-device-floppy me-1"></i>Salvar alterações</button>' +
+            '</div>' : '');
+   }
+
+   function desenhar() {
+      var lista = document.getElementById('wae-cli-lista');
+      document.getElementById('wae-cli-total').textContent = clientes.length;
+
+      if (!clientes.length) {
+         lista.innerHTML = '<div class="wae-cli-vazio py-4"><i class="ti ti-building fs-1 d-block mb-2"></i>Nenhum cliente cadastrado.</div>';
+         return;
+      }
+
+      lista.innerHTML = clientes.map(htmlItem).join('');
+      ativarDicas(lista);
+      filtrar();
+   }
+
+   /** Abre o cliente; o corpo e montado so na primeira vez e depois preservado (rascunho) */
+   function abrir(item, abrirOuFechar) {
+      var abrirAgora = abrirOuFechar !== undefined ? abrirOuFechar : !item.classList.contains('wae-cli-aberto');
+      item.classList.toggle('wae-cli-aberto', abrirAgora);
+
+      var corpo = item.querySelector('.wae-cli-corpo');
+      if (abrirAgora && !corpo.hasAttribute('data-montado')) {
+         var c = acharCliente(item.getAttribute('data-cliente'));
+         corpo.innerHTML = htmlCorpo(c);
+         corpo.setAttribute('data-montado', '1');
+         ativarDicas(corpo);
+         carregarRequerente(item, c.entities_id);
+      }
+   }
+
+   /** Campo nativo de usuario do GLPI (select2) vindo do servidor */
+   function carregarRequerente(item, entities_id) {
+      var alvo = item.querySelector('[data-requerente]');
+      // POST: o campo registra um token de seguranca na sessao
+      WAE.pedir('cliente_requerente', { entities_id: entities_id }, 'POST').then(function (r) {
+         if (!r.sucesso) { alvo.innerHTML = '<span class="text-danger small">Não foi possível carregar.</span>'; return; }
+         $(alvo).html(r.html);
+         if (!podeEditar) { $(alvo).find('select').prop('disabled', true); }
+         $(alvo).find('select').on('change', function () { marcarSujo(item); });
       });
    }
 
-   function ligarEventos() {
-      var busca = document.getElementById('wae-cli-busca');
-      if (busca) {
-         var temporizador = null;
-         busca.addEventListener('input', function () {
-            clearTimeout(temporizador);
-            temporizador = setTimeout(desenhar, 250);
+   function filtrar() {
+      var termo = (document.getElementById('wae-cli-busca').value || '').trim().toLowerCase();
+      clientes.forEach(function (c) {
+         var item = itemDe(c.entities_id);
+         if (!item) { return; }
+         var alvo = [c.entidade, c.requerente, c.observacao]
+            .concat(c.codigos.map(function (k) { return k.codigo + ' ' + k.descricao; }))
+            .concat(c.contatos.map(function (k) { return k.nome + ' ' + k.telefone; }))
+            .join(' ').toLowerCase();
+         item.hidden = !!termo && alvo.indexOf(termo) < 0;
+      });
+   }
+
+   // ============================================
+   // Rascunho e gravacao
+   // ============================================
+
+   function atualizarPendentes() {
+      var total = Object.keys(sujos).length;
+      var botao = document.getElementById('wae-cli-salvar-tudo');
+      var selo = document.getElementById('wae-cli-pendentes');
+      if (botao) { botao.disabled = total === 0; }
+      if (selo) { selo.textContent = total; selo.classList.toggle('wae-oculto', total === 0); }
+   }
+
+   function marcarSujo(item) {
+      if (!podeEditar) { return; }
+      var id = item.getAttribute('data-cliente');
+      sujos[id] = true;
+      item.classList.add('wae-cli-sujo');
+      item.querySelectorAll('[data-salvar], [data-descartar]').forEach(function (b) { b.disabled = false; });
+      var estado = item.querySelector('.wae-cli-estado');
+      if (estado) { estado.className = 'wae-cli-estado text-warning small'; estado.innerHTML = '<i class="ti ti-pencil me-1"></i>Alterações não salvas'; }
+      atualizarPendentes();
+   }
+
+   function limparSujo(id) {
+      delete sujos[id];
+      delete removidos[id];
+      atualizarPendentes();
+   }
+
+   function coletar(item) {
+      var id = item.getAttribute('data-cliente');
+      var corpo = item.querySelector('.wae-cli-corpo');
+      var c = acharCliente(id);
+      var montado = corpo.hasAttribute('data-montado');
+
+      var cliente = { is_ativo: item.querySelector('[data-cli="is_ativo"]').checked ? 1 : 0 };
+
+      if (montado) {
+         var requerente = $(corpo).find('[data-requerente] select');
+         if (requerente.length) { cliente.users_id_requerente = requerente.val() || 0; }
+         corpo.querySelectorAll('[data-cli]').forEach(function (el) {
+            var campo = el.getAttribute('data-cli');
+            cliente[campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
          });
       }
+
+      var linhas = function (seletor, campos) {
+         if (!montado) { return null; }
+         return Array.prototype.map.call(corpo.querySelectorAll(seletor), function (tr) {
+            var dados = { id: parseInt(tr.getAttribute('data-id'), 10) || 0 };
+            campos.forEach(function (f) {
+               var el = tr.querySelector('[data-f="' + f + '"]');
+               if (el) { dados[f] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value; }
+            });
+            return dados;
+         });
+      };
+
+      // Corpo nunca aberto: codigos e contatos seguem como estao gravados
+      var codigos = linhas('tr[data-codigo-linha]', ['codigo', 'descricao', 'itilcategories_id', 'unidade_id', 'setor', 'is_ativo']) || c.codigos;
+      var contatos = linhas('tr[data-contato-linha]', ['nome', 'telefone', 'is_ativo']) || c.contatos;
+
+      return {
+         cliente: cliente,
+         codigos: codigos,
+         contatos: contatos,
+         codigos_removidos: (removidos[id] || {}).codigos || [],
+         contatos_removidos: (removidos[id] || {}).contatos || []
+      };
+   }
+
+   function mostrarErros(item, erros) {
+      item.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); el.removeAttribute('title'); });
+      var codigos = item.querySelectorAll('tr[data-codigo-linha]');
+      var contatos = item.querySelectorAll('tr[data-contato-linha]');
+
+      erros.forEach(function (erro) {
+         var linha = erro.tipo === 'codigo' ? codigos[erro.indice] : (erro.tipo === 'contato' ? contatos[erro.indice] : null);
+         if (!linha) { return; }
+         var campo = linha.querySelector(erro.tipo === 'codigo' ? '[data-f="codigo"]' : (/telefone/i.test(erro.mensagem) ? '[data-f="telefone"]' : '[data-f="nome"]'));
+         if (campo) { campo.classList.add('is-invalid'); campo.title = erro.mensagem; }
+      });
+
+      WAE.avisar(erros.map(function (x) { return x.mensagem; }).join('\n'), true);
+   }
+
+   function salvar(item) {
+      var id = item.getAttribute('data-cliente');
+      var botao = item.querySelector('[data-salvar]');
+      if (botao) { botao.disabled = true; botao.innerHTML = '<i class="ti ti-loader-2 me-1"></i>Salvando...'; }
+
+      return WAE.pedir('cliente_salvar_tudo', { entities_id: id, dados: JSON.stringify(coletar(item)) }, 'POST').then(function (r) {
+         if (botao) { botao.innerHTML = '<i class="ti ti-device-floppy me-1"></i>Salvar alterações'; }
+
+         if (!r.sucesso) {
+            if (botao) { botao.disabled = false; }
+            if (!item.classList.contains('wae-cli-aberto')) { abrir(item, true); }
+            mostrarErros(item, r.erros || []);
+            if (!(r.erros || []).length) { WAE.avisar(r.mensagem || 'Não foi possível salvar.', true); }
+            return false;
+         }
+
+         limparSujo(id);
+         return recarregarCliente(id).then(function () {
+            WAE.avisar('Cliente "' + (acharCliente(id) || {}).entidade + '" salvo.');
+            return true;
+         });
+      });
+   }
+
+   /** Busca os dados gravados e redesenha so este cliente (os rascunhos dos outros ficam) */
+   function recarregarCliente(id) {
+      return WAE.pedir('clientes_listar').then(function (r) {
+         if (!r.sucesso) { return; }
+         categorias = r.categorias || categorias;
+         var novo = null;
+         (r.itens || []).forEach(function (c) { if (String(c.entities_id) === String(id)) { novo = c; } });
+         clientes = clientes.map(function (c) { return String(c.entities_id) === String(id) && novo ? novo : c; });
+
+         var antigo = itemDe(id);
+         if (!antigo || !novo) { return; }
+         var aberto = antigo.classList.contains('wae-cli-aberto');
+         var temp = document.createElement('div');
+         temp.innerHTML = htmlItem(novo);
+         var item = temp.firstChild;
+         antigo.replaceWith(item);
+         ativarDicas(item);
+         if (aberto) { abrir(item, true); }
+      });
+   }
+
+   function descartar(item) {
+      var id = item.getAttribute('data-cliente');
+      WAE.confirmar('Descartar as alterações não salvas deste cliente?').then(function (ok) {
+         if (!ok) { return; }
+         limparSujo(id);
+         recarregarCliente(id);
+      });
+   }
+
+   function salvarTudo() {
+      var ids = Object.keys(sujos);
+      var falhas = 0;
+      var sequencia = Promise.resolve();
+      ids.forEach(function (id) {
+         sequencia = sequencia.then(function () {
+            var item = itemDe(id);
+            return item ? salvar(item).then(function (ok) { if (!ok) { falhas++; } }) : null;
+         });
+      });
+      return sequencia.then(function () {
+         if (ids.length > 1 && !falhas) { WAE.avisar(ids.length + ' clientes salvos.'); }
+      });
+   }
+
+   function carregar() {
+      return WAE.pedir('clientes_listar').then(function (r) {
+         if (!r.sucesso) {
+            WAE.avisar(r.mensagem || 'Não foi possível carregar os clientes.', true);
+            return;
+         }
+         clientes = r.itens || [];
+         categorias = r.categorias || [];
+         botoesDisponivel = !!r.botoes_disponivel;
+         sujos = {};
+         removidos = {};
+         atualizarPendentes();
+         desenhar();
+      });
+   }
+
+   // ============================================
+   // Eventos
+   // ============================================
+
+   function ligarEventos() {
+      document.getElementById('wae-cli-busca').addEventListener('input', filtrar);
+
+      var salvarTudoBotao = document.getElementById('wae-cli-salvar-tudo');
+      if (salvarTudoBotao) { salvarTudoBotao.addEventListener('click', salvarTudo); }
 
       var adicionar = document.getElementById('wae-cli-adicionar');
       if (adicionar) {
@@ -348,159 +468,114 @@
             adicionar.disabled = true;
             WAE.pedir('cliente_adicionar', { entities_id: entidade, users_id_requerente: requerente }, 'POST').then(function (r) {
                adicionar.disabled = false;
-               WAE.avisar(r.mensagem || (r.sucesso ? 'Cliente cadastrado.' : 'Nao foi possivel cadastrar.'), !r.sucesso);
-               if (r.sucesso) {
-                  abertos[r.entities_id] = true;
-                  $(novo).find('select[name="entities_id"]').val('-1').trigger('change');
-                  carregar();
-               }
+               WAE.avisar(r.mensagem || (r.sucesso ? 'Cliente cadastrado.' : 'Não foi possível cadastrar.'), !r.sucesso);
+               if (!r.sucesso) { return; }
+               $(novo).find('select[name="entities_id"]').val('-1').trigger('change');
+               // Os rascunhos dos outros clientes continuam: so entra o novo
+               WAE.pedir('clientes_listar').then(function (lista) {
+                  var cliente = null;
+                  (lista.itens || []).forEach(function (c) { if (String(c.entities_id) === String(r.entities_id)) { cliente = c; } });
+                  if (!cliente) { return; }
+                  clientes.push(cliente);
+                  var temp = document.createElement('div');
+                  temp.innerHTML = htmlItem(cliente);
+                  var item = temp.firstChild;
+                  var listaEl = document.getElementById('wae-cli-lista');
+                  if (!listaEl.querySelector('.wae-cli-item')) { listaEl.innerHTML = ''; }
+                  listaEl.insertBefore(item, listaEl.firstChild);
+                  document.getElementById('wae-cli-total').textContent = clientes.length;
+                  ativarDicas(item);
+                  abrir(item, true);
+               });
             });
          });
       }
 
-      // Cliques: abrir/fechar, remover, adicionar codigos e contatos
       raiz.addEventListener('click', function (ev) {
          var alvo = ev.target;
-         var item = alvo.closest('[data-cliente]');
-         var entities_id = item ? item.getAttribute('data-cliente') : null;
+         var item = alvo.closest('.wae-cli-item');
+         if (!item) { return; }
+         var id = item.getAttribute('data-cliente');
 
-         if (alvo.closest('[data-parar]') && !alvo.closest('[data-cli-remover]')) { return; }
-
-         var remover = alvo.closest('[data-cli-remover]');
-         if (remover) {
-            ev.stopPropagation();
-            var cliente = acharCliente(entities_id);
-            WAE.confirmar('Remover o cliente "' + (cliente ? cliente.entidade : '') + '"? Os contatos serao apagados e os codigos desativados.').then(function (ok) {
+         if (alvo.closest('[data-cli-remover]')) {
+            var c = acharCliente(id);
+            WAE.confirmar('Remover o cliente "' + (c ? c.entidade : '') + '"? Os contatos serão apagados e os códigos desativados.').then(function (ok) {
                if (!ok) { return; }
-               WAE.pedir('cliente_remover', { entities_id: entities_id }, 'POST').then(function (r) {
+               WAE.pedir('cliente_remover', { entities_id: id }, 'POST').then(function (r) {
                   WAE.avisar(r.mensagem || '', !r.sucesso);
-                  delete abertos[entities_id];
-                  carregar();
+                  if (!r.sucesso) { return; }
+                  limparSujo(id);
+                  clientes = clientes.filter(function (x) { return String(x.entities_id) !== String(id); });
+                  item.remove();
+                  document.getElementById('wae-cli-total').textContent = clientes.length;
                });
             });
             return;
          }
 
-         if (alvo.closest('[data-alternar]') && !alvo.closest('input, button, select, label')) {
-            abertos[entities_id] = !abertos[entities_id];
-            desenhar();
-            return;
-         }
+         if (alvo.closest('[data-parar]')) { return; }
 
-         if (alvo.closest('[data-gerar-codigo]')) {
-            WAE.pedir('codigo_sugerir').then(function (r) {
-               if (r.sucesso) { item.querySelector('[data-novo-codigo]').value = r.codigo; }
-            });
-            return;
-         }
+         if (alvo.closest('[data-alternar]')) { abrir(item); return; }
+
+         if (alvo.closest('[data-salvar]')) { salvar(item); return; }
+         if (alvo.closest('[data-descartar]')) { descartar(item); return; }
+
+         var cliente = acharCliente(id);
 
          if (alvo.closest('[data-add-codigo]')) {
-            var campoCodigo = item.querySelector('[data-novo-codigo]');
-            WAE.pedir('codigo_salvar', { entities_id: entities_id, codigo: campoCodigo.value.trim() }, 'POST').then(function (r) {
-               if (!r.sucesso) { sinalizar(campoCodigo, false); WAE.avisar(r.mensagem, true); return; }
-               WAE.avisar('Codigo adicionado.');
-               carregar();
-            });
-            return;
-         }
-
-         var removerCodigo = alvo.closest('[data-remover-codigo]');
-         if (removerCodigo) {
-            WAE.confirmar('Remover este codigo? Quem usa ele deixa de conseguir acesso.').then(function (ok) {
-               if (!ok) { return; }
-               WAE.pedir('codigo_remover', { entities_id: entities_id, id: removerCodigo.getAttribute('data-remover-codigo') }, 'POST').then(carregar);
+            WAE.pedir('codigo_sugerir').then(function (r) {
+               var corpo = item.querySelector('[data-codigos]');
+               corpo.insertAdjacentHTML('beforeend', linhaCodigo(cliente, { id: 0, codigo: r.codigo || '', descricao: '', is_ativo: 1, itilcategories_id: 0, unidade_id: 0, setor: '' }));
+               item.querySelector('[data-vazio-codigos]').hidden = true;
+               corpo.lastElementChild.querySelector('[data-f="descricao"]').focus();
+               marcarSujo(item);
             });
             return;
          }
 
          if (alvo.closest('[data-add-contato]')) {
-            var nome = item.querySelector('[data-novo-contato-nome]');
-            var tel = item.querySelector('[data-novo-contato-tel]');
-            WAE.pedir('contato_salvar', { entities_id: entities_id, nome: nome.value.trim(), telefone: tel.value }, 'POST').then(function (r) {
-               if (!r.sucesso) { sinalizar(tel, false); WAE.avisar(r.mensagem, true); return; }
-               WAE.avisar('Contato adicionado.');
-               carregar();
-            });
+            var tabela = item.querySelector('[data-contatos]');
+            tabela.insertAdjacentHTML('beforeend', linhaContato({ id: 0, nome: '', telefone: '', is_ativo: 1 }));
+            item.querySelector('[data-vazio-contatos]').hidden = true;
+            tabela.lastElementChild.querySelector('[data-f="nome"]').focus();
+            marcarSujo(item);
             return;
          }
 
-         var removerContato = alvo.closest('[data-remover-contato]');
-         if (removerContato) {
-            WAE.confirmar('Remover este contato? Ele deixa de ser atendido pelo telefone.').then(function (ok) {
-               if (!ok) { return; }
-               WAE.pedir('contato_remover', { entities_id: entities_id, id: removerContato.getAttribute('data-remover-contato') }, 'POST').then(carregar);
-            });
+         var remover = alvo.closest('[data-remover-linha]');
+         if (remover) {
+            var linha = remover.closest('tr');
+            var linhaId = parseInt(linha.getAttribute('data-id'), 10) || 0;
+            var ehCodigo = linha.hasAttribute('data-codigo-linha');
+            if (linhaId > 0) {
+               removidos[id] = removidos[id] || { codigos: [], contatos: [] };
+               removidos[id][ehCodigo ? 'codigos' : 'contatos'].push(linhaId);
+            }
+            var tbody = linha.parentNode;
+            linha.remove();
+            item.querySelector(ehCodigo ? '[data-vazio-codigos]' : '[data-vazio-contatos]').hidden = tbody.children.length > 0;
+            marcarSujo(item);
          }
       });
 
-      // Alteracoes: gravadas na hora
-      raiz.addEventListener('change', function (ev) {
-         var alvo = ev.target;
-         var item = alvo.closest('[data-cliente]');
-         if (!item || !podeEditar) { return; }
-         var entities_id = item.getAttribute('data-cliente');
-
-         if (alvo.hasAttribute('data-cli-ativo')) {
-            WAE.pedir('cliente_salvar', { entities_id: entities_id, is_ativo: alvo.checked ? 1 : 0 }, 'POST').then(function (r) {
-               if (!r.sucesso) { WAE.avisar('Nao foi possivel gravar.', true); return; }
-               var c = acharCliente(entities_id);
-               if (c) { c.is_ativo = alvo.checked ? 1 : 0; atualizarResumo(entities_id); }
-               WAE.avisar(alvo.checked ? 'Cliente ativado.' : 'Cliente desativado: os codigos dele deixam de valer.');
-            });
-            return;
-         }
-
-         // Categoria, Unidade/Setor do Botoes e a chave que liga esse preenchimento
-         if (alvo.hasAttribute('data-cli-campo')) {
-            var campo = alvo.getAttribute('data-cli-campo');
-            var valor = alvo.type === 'checkbox' ? (alvo.checked ? 1 : 0) : alvo.value;
-            var envio = { entities_id: entities_id };
-            envio[campo] = valor;
-            WAE.pedir('cliente_salvar', envio, 'POST').then(function (r) {
-               if (!r.sucesso) { sinalizar(alvo, false); WAE.avisar('Nao foi possivel gravar.', true); return; }
-               var c = acharCliente(entities_id);
-               if (campo === 'usar_botoes') {
-                  // Mostra ou esconde Unidade/Setor (do cliente e dos codigos)
-                  if (c) { c.usar_botoes = valor; }
-                  desenhar();
-                  WAE.avisar(valor ? 'Unidade e Setor serão preenchidos nos chamados deste cliente.' : 'Unidade e Setor desligados para este cliente.');
-                  return;
-               }
-               if (c) { c[campo] = campo === 'setor' ? valor : (parseInt(valor, 10) || 0); }
-               sinalizar(alvo, true);
-            });
-            return;
-         }
-
-         if (alvo.hasAttribute('data-cli-obs')) {
-            WAE.pedir('cliente_salvar', { entities_id: entities_id, observacao: alvo.value }, 'POST').then(function (r) {
-               sinalizar(alvo, !!r.sucesso);
-               var c = acharCliente(entities_id);
-               if (c) { c.observacao = alvo.value; }
-            });
-            return;
-         }
-
-         var linhaCodigo = alvo.closest('[data-codigo]');
-         if (linhaCodigo) { salvarCodigo(entities_id, linhaCodigo); return; }
-
-         var linhaContato = alvo.closest('[data-contato]');
-         if (linhaContato) { salvarContato(entities_id, linhaContato); }
-      });
-
-      // Mascara de telefone brasileiro
+      // Qualquer alteracao vira rascunho
       raiz.addEventListener('input', function (ev) {
-         if (ev.target.hasAttribute('data-mascara')) {
-            ev.target.value = formatarTelefone(ev.target.value);
-         }
+         var item = ev.target.closest('.wae-cli-item');
+         if (ev.target.hasAttribute('data-mascara')) { ev.target.value = formatarTelefone(ev.target.value); }
+         if (item) { marcarSujo(item); }
       });
 
-      // Enter nos campos de inclusao aciona o botao ao lado
-      raiz.addEventListener('keydown', function (ev) {
-         if (ev.key !== 'Enter') { return; }
-         var grupo = ev.target.closest('.input-group');
-         var botao = grupo ? grupo.querySelector('[data-add-codigo], [data-add-contato]') : null;
-         if (botao) { ev.preventDefault(); botao.click(); }
+      raiz.addEventListener('change', function (ev) {
+         var item = ev.target.closest('.wae-cli-item');
+         if (!item) { return; }
+         var campo = ev.target.getAttribute('data-cli');
+         if (campo === 'usar_botoes') {
+            item.classList.toggle('wae-cli-com-botoes', ev.target.checked);
+         }
+         if (campo === 'is_ativo') {
+            item.classList.toggle('wae-cli-inativo', !ev.target.checked);
+         }
+         marcarSujo(item);
       });
    }
 
@@ -510,6 +585,7 @@
          if (!raiz || raiz.getAttribute('data-iniciado')) { return; }
          raiz.setAttribute('data-iniciado', '1');
          podeEditar = raiz.getAttribute('data-edita') === '1';
+         ativarDicas(raiz);
          ligarEventos();
          carregar();
       }

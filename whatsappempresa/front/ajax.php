@@ -827,6 +827,24 @@ switch ($acao) {
       }
       wae_responder(['sucesso' => PluginWhatsappempresaCliente::salvar($entities_id, $campos)]);
 
+   case 'cliente_salvar_tudo':
+      // Botao Salvar da aba Clientes: cliente, codigos e contatos numa gravacao so
+      wae_exigir_admin_escrita();
+      $entities_id = (int)($_POST['entities_id'] ?? -1);
+      $dados = json_decode((string)($_POST['dados'] ?? ''), true);
+      if (!is_array($dados)) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Nao foi possivel ler os dados enviados.', 'erros' => []]);
+      }
+      $resultado = PluginWhatsappempresaCliente::salvarTudo($entities_id, $dados);
+      if ($resultado['ok']) {
+         PluginWhatsappempresaLog::registrar('Cliente do autoatendimento alterado', PluginWhatsappempresaCliente::nomeEntidade($entities_id) . ' por ' . wae_usuario(), 'info', 'autoatendimento', (int)Session::getLoginUserID());
+      }
+      wae_responder([
+         'sucesso'  => $resultado['ok'],
+         'mensagem' => $resultado['ok'] ? 'Alteracoes salvas.' : 'Corrija os campos destacados antes de salvar.',
+         'erros'    => $resultado['erros']
+      ]);
+
    case 'cliente_remover':
       wae_exigir_admin_escrita();
       $entities_id = (int)($_POST['entities_id'] ?? -1);

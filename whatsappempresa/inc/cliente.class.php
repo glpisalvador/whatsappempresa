@@ -333,6 +333,166 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
    }
 
    // ============================================
+   // Gravacao do cadastro inteiro (botao Salvar da aba Clientes)
+   // ============================================
+
+   /**
+    * Grava cliente, codigos e contatos de uma vez. Valida tudo antes: com qualquer erro nada e gravado.
+    *
+    * @param array $dados {cliente:{...}, codigos:[{id,codigo,descricao,is_ativo,itilcategories_id,unidade_id,setor}],
+    *                      codigos_removidos:[id], contatos:[{id,nome,telefone,is_ativo}], contatos_removidos:[id]}
+    * @return array{ok:bool, erros:array}
+    */
+   static function salvarTudo(int $entities_id, array $dados): array {
+      global $DB;
+
+      $erros = [];
+      $erro  = function (string $tipo, int $indice, string $mensagem) use (&$erros) {
+         $erros[] = ['tipo' => $tipo, 'indice' => $indice, 'mensagem' => $mensagem];
+      };
+
+      if (self::porEntidade($entities_id) === null) {
+         return ['ok' => false, 'erros' => [['tipo' => 'cliente', 'indice' => -1, 'mensagem' => 'Cliente nao encontrado.']]];
+      }
+
+      // Ids enviados precisam pertencer a este cliente
+      $meusCodigos  = array_column(self::codigosDe($entities_id), 'id');
+      $meusContatos = array_column(self::contatosDe($entities_id), 'id');
+
+      $codigosRemovidos  = array_values(array_intersect(array_map('intval', (array)($dados['codigos_removidos'] ?? [])), $meusCodigos));
+      $contatosRemovidos = array_values(array_intersect(array_map('intval', (array)($dados['contatos_removidos'] ?? [])), $meusContatos));
+
+      // Codigos: formato, repetidos na tela e em uso por outro cliente
+      $codigos = [];
+      $vistos  = [];
+      foreach (array_values((array)($dados['codigos'] ?? [])) as $i => $linha) {
+         $id     = (int)($linha['id'] ?? 0);
+         $codigo = trim((string)($linha['codigo'] ?? ''));
+         if ($id > 0 && !in_array($id, $meusCodigos, true)) {
+            continue;
+         }
+
+         if (mb_strlen($codigo) < 3 || mb_strlen($codigo) > 60) {
+            $erro('codigo', $i, 'O codigo deve ter entre 3 e 60 caracteres.');
+            continue;
+         }
+         if (preg_match('/\s/', $codigo)) {
+            $erro('codigo', $i, 'O codigo "' . $codigo . '" tem espacos.');
+            continue;
+         }
+         $chave = mb_strtolower($codigo);
+         if (isset($vistos[$chave])) {
+            $erro('codigo', $i, 'O codigo "' . $codigo . '" aparece duas vezes.');
+            continue;
+         }
+         $vistos[$chave] = true;
+
+         foreach ($DB->request([
+            'SELECT' => ['id', 'codigo', 'entities_id'],
+            'FROM'   => self::TABELA_CODIGOS,
+            'WHERE'  => ['is_deleted' => 0, 'NOT' => ['entities_id' => $entities_id]]
+         ]) as $outro) {
+            if (strcasecmp(trim((string)$outro['codigo']), $codigo) === 0) {
+               $erro('codigo', $i, 'O codigo "' . $codigo . '" ja e usado por ' . self::nomeEntidade((int)$outro['entities_id']) . '.');
+               continue 2;
+            }
+         }
+
+         $codigos[] = [
+            'id'                => $id,
+            'codigo'            => $codigo,
+            'descricao'         => mb_substr(trim((string)($linha['descricao'] ?? '')), 0, 255),
+            'is_ativo'          => !empty($linha['is_ativo']) ? 1 : 0,
+            'itilcategories_id' => self::categoriaValida((int)($linha['itilcategories_id'] ?? 0)),
+            'unidade_id'        => self::unidadeValida($entities_id, (int)($linha['unidade_id'] ?? 0)),
+            'setor'             => self::setorValido($entities_id, (string)($linha['setor'] ?? ''))
+         ];
+      }
+
+      // Contatos: nome, telefone e numero repetido
+      $contatos = [];
+      $chaves   = [];
+      foreach (array_values((array)($dados['contatos'] ?? [])) as $i => $linha) {
+         $id       = (int)($linha['id'] ?? 0);
+         $nome     = mb_substr(trim((string)preg_replace('/\s+/', ' ', (string)($linha['nome'] ?? ''))), 0, 100);
+         $telefone = PluginWhatsappempresaConfig::limparTelefone((string)($linha['telefone'] ?? ''));
+         if ($id > 0 && !in_array($id, $meusContatos, true)) {
+            continue;
+         }
+
+         if ($nome === '') {
+            $erro('contato', $i, 'Informe o nome do contato.');
+            continue;
+         }
+         if (strlen($telefone) < 10 || strlen($telefone) > 13) {
+            $erro('contato', $i, 'Telefone de ' . $nome . ' invalido: use DDD + numero.');
+            continue;
+         }
+         $chave = PluginWhatsappempresaConfig::chaveTelefone($telefone);
+         if (isset($chaves[$chave])) {
+            $erro('contato', $i, 'O telefone de ' . $nome . ' ja esta em outro contato da lista.');
+            continue;
+         }
+         $chaves[$chave] = true;
+
+         foreach ($DB->request([
+            'SELECT' => ['nome', 'entities_id'],
+            'FROM'   => self::TABELA_CONTATOS,
+            'WHERE'  => ['chave' => $chave, 'NOT' => ['entities_id' => $entities_id]],
+            'LIMIT'  => 1
+         ]) as $outro) {
+            $erro('contato', $i, 'O telefone de ' . $nome . ' ja pertence a ' . $outro['nome'] . ' (' . self::nomeEntidade((int)$outro['entities_id']) . ').');
+            continue 2;
+         }
+
+         $contatos[] = [
+            'id'       => $id,
+            'nome'     => $nome,
+            'telefone' => $telefone,
+            'chave'    => $chave,
+            'is_ativo' => !empty($linha['is_ativo']) ? 1 : 0
+         ];
+      }
+
+      if (!empty($erros)) {
+         return ['ok' => false, 'erros' => $erros];
+      }
+
+      // Tudo valido: grava
+      self::salvar($entities_id, array_intersect_key((array)($dados['cliente'] ?? []), array_flip([
+         'users_id_requerente', 'is_ativo', 'observacao', 'itilcategories_id', 'usar_botoes', 'unidade_id', 'setor'
+      ])));
+
+      if ($codigosRemovidos) {
+         $DB->update(self::TABELA_CODIGOS, ['is_deleted' => 1, 'is_ativo' => 0], ['id' => $codigosRemovidos, 'entities_id' => $entities_id]);
+      }
+      foreach ($codigos as $codigo) {
+         $id = $codigo['id'];
+         unset($codigo['id']);
+         if ($id > 0) {
+            $DB->update(self::TABELA_CODIGOS, $codigo, ['id' => $id, 'entities_id' => $entities_id]);
+         } else {
+            $DB->insert(self::TABELA_CODIGOS, $codigo + ['entities_id' => $entities_id]);
+         }
+      }
+
+      if ($contatosRemovidos) {
+         $DB->delete(self::TABELA_CONTATOS, ['id' => $contatosRemovidos, 'entities_id' => $entities_id]);
+      }
+      foreach ($contatos as $contato) {
+         $id = $contato['id'];
+         unset($contato['id']);
+         if ($id > 0) {
+            $DB->update(self::TABELA_CONTATOS, $contato, ['id' => $id, 'entities_id' => $entities_id]);
+         } else {
+            $DB->insert(self::TABELA_CONTATOS, $contato + ['entities_id' => $entities_id]);
+         }
+      }
+
+      return ['ok' => true, 'erros' => []];
+   }
+
+   // ============================================
    // Codigos de acesso
    // ============================================
 

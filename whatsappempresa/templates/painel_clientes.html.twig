@@ -1,60 +1,58 @@
-{# Aba Clientes: entidades atendidas no autoatendimento, seus codigos de acesso e contatos #}
+{# Aba Clientes: entidades atendidas no autoatendimento, codigos de acesso e contatos #}
 <div class="wae-clientes" id="wae-clientes" data-edita="{{ canedit ? 1 : 0 }}">
 
    {% if not exige_codigo %}
-      <div class="alert alert-info d-flex align-items-center gap-2">
-         <i class="ti ti-info-circle fs-2"></i>
-         <div>
-            O pedido de código está <strong>desligado</strong> na aba Regras: os códigos abaixo ficam guardados, mas
-            só passam a ser pedidos quando "Exigir código de acesso" for ativado. Os contatos continuam sendo
-            reconhecidos pelo telefone.
-         </div>
+      <div class="alert alert-info py-2 d-flex align-items-center gap-2 mb-3">
+         <i class="ti ti-info-circle"></i>
+         <span>O código de acesso está desligado na aba Regras: os códigos ficam guardados, mas só são pedidos quando ele for ligado.</span>
       </div>
    {% endif %}
 
    {% if canedit %}
-   <div class="card mb-3">
-      <div class="card-header">
-         <h3 class="card-title"><i class="ti ti-building-plus me-2"></i>Novo cliente</h3>
-      </div>
-      <div class="card-body">
+   <div class="card mb-3 wae-cli-novo-card">
+      <div class="card-body py-3">
          <div class="row g-3 align-items-end" id="wae-cli-novo">
             <div class="col-lg-5">
-               <label class="form-label">Entidade do cliente</label>
+               <label class="form-label">
+                  Entidade do cliente
+                  <span class="wae-ajuda" tabindex="0" title="Entidade do GLPI atendida pelo autoatendimento. Ela recebe um código de acesso gerado na hora."><i class="ti ti-info-circle"></i></span>
+               </label>
                {{ campo_entidade|raw }}
             </div>
             <div class="col-lg-5">
-               <label class="form-label">Requerente padrão dos chamados</label>
+               <label class="form-label">
+                  Requerente padrão
+                  <span class="wae-ajuda" tabindex="0" title="Usuário do GLPI em nome de quem são abertos os chamados dos contatos que não têm usuário próprio. O nome e o telefone do contato vão na descrição."><i class="ti ti-info-circle"></i></span>
+               </label>
                {{ campo_requerente|raw }}
             </div>
             <div class="col-lg-2">
                <button type="button" class="btn btn-primary w-100" id="wae-cli-adicionar">
-                  <i class="ti ti-plus me-1"></i>Adicionar
+                  <i class="ti ti-building-plus me-1"></i>Adicionar cliente
                </button>
             </div>
          </div>
-         <p class="text-muted small mt-3 mb-0">
-            <i class="ti ti-info-circle me-1"></i>
-            O cliente recebe um código gerado na hora. Quem envia o código e está na lista de contatos do cliente
-            é atendido mesmo sem usuário no GLPI: os registros abertos ficam na entidade do cliente, em nome do
-            requerente padrão, com o nome e o telefone do contato na descrição.
-         </p>
       </div>
    </div>
    {% endif %}
 
    <div class="card">
-      <div class="card-header">
-         <h3 class="card-title"><i class="ti ti-building me-2"></i>Clientes cadastrados</h3>
+      <div class="card-header wae-cli-cabecalho">
+         <h3 class="card-title"><i class="ti ti-building me-2"></i>Clientes <span class="badge bg-secondary-lt ms-1" id="wae-cli-total">0</span></h3>
          <div class="card-actions d-flex align-items-center gap-2">
             <div class="input-icon">
                <span class="input-icon-addon"><i class="ti ti-search"></i></span>
                <input type="search" class="form-control form-control-sm" id="wae-cli-busca" placeholder="Buscar cliente, código ou contato" autocomplete="off">
             </div>
+            {% if canedit %}
+            <button type="button" class="btn btn-sm wae-btn-salvar" id="wae-cli-salvar-tudo" disabled title="Salva todos os clientes com alterações pendentes">
+               <i class="ti ti-device-floppy me-1"></i>Salvar tudo <span class="badge bg-white text-dark ms-1 wae-oculto" id="wae-cli-pendentes">0</span>
+            </button>
+            {% endif %}
          </div>
       </div>
-      <div id="wae-cli-lista" class="list-group list-group-flush">
-         <div class="list-group-item text-secondary"><i class="ti ti-loader-2 me-1"></i>Carregando clientes...</div>
+      <div id="wae-cli-lista" class="wae-cli-lista">
+         <div class="p-3 text-secondary"><i class="ti ti-loader-2 me-1"></i>Carregando clientes...</div>
       </div>
    </div>
 </div>
