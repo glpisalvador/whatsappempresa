@@ -787,7 +787,12 @@ switch ($acao) {
 
    case 'clientes_listar':
       wae_exigir_admin();
-      wae_responder(['sucesso' => true, 'itens' => PluginWhatsappempresaCliente::listar()]);
+      wae_responder([
+         'sucesso'           => true,
+         'itens'             => PluginWhatsappempresaCliente::listar(),
+         'categorias'        => PluginWhatsappempresaCliente::categorias(),
+         'botoes_disponivel' => PluginWhatsappempresaCliente::botoesDisponivel()
+      ]);
 
    case 'cliente_adicionar':
       wae_exigir_admin_escrita();
@@ -815,7 +820,7 @@ switch ($acao) {
          wae_responder(['sucesso' => false, 'mensagem' => 'Cliente nao encontrado.']);
       }
       $campos = [];
-      foreach (['users_id_requerente', 'is_ativo', 'observacao'] as $campo) {
+      foreach (['users_id_requerente', 'is_ativo', 'observacao', 'itilcategories_id', 'usar_botoes', 'unidade_id', 'setor'] as $campo) {
          if (isset($_POST[$campo])) {
             $campos[$campo] = $_POST[$campo];
          }
@@ -852,12 +857,18 @@ switch ($acao) {
       if (PluginWhatsappempresaCliente::porEntidade($entities_id) === null) {
          wae_responder(['sucesso' => false, 'mensagem' => 'Cliente nao encontrado.']);
       }
-      $resultado = PluginWhatsappempresaCliente::salvarCodigo($entities_id, [
+      $dadosCodigo = [
          'id'        => (int)($_POST['id'] ?? 0),
          'codigo'    => (string)($_POST['codigo'] ?? ''),
          'descricao' => (string)($_POST['descricao'] ?? ''),
          'is_ativo'  => (string)($_POST['is_ativo'] ?? '1')
-      ]);
+      ];
+      foreach (['itilcategories_id', 'unidade_id', 'setor'] as $campo) {
+         if (isset($_POST[$campo])) {
+            $dadosCodigo[$campo] = $_POST[$campo];
+         }
+      }
+      $resultado = PluginWhatsappempresaCliente::salvarCodigo($entities_id, $dadosCodigo);
       if (is_string($resultado)) {
          wae_responder(['sucesso' => false, 'mensagem' => $resultado]);
       }

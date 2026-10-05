@@ -70,6 +70,11 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
             'requerente'           => (int)$linha['users_id_requerente'] > 0 ? PluginWhatsappempresaConfig::nomeUsuario((int)$linha['users_id_requerente']) : '',
             'is_ativo'             => (int)$linha['is_ativo'],
             'observacao'           => (string)($linha['observacao'] ?? ''),
+            'itilcategories_id'    => (int)($linha['itilcategories_id'] ?? 0),
+            'usar_botoes'          => (int)($linha['usar_botoes'] ?? 0),
+            'unidade_id'           => (int)($linha['unidade_id'] ?? 0),
+            'setor'                => (string)($linha['setor'] ?? ''),
+            'botoes'               => self::listasBotoes($entities_id),
             'codigos'              => self::codigosDe($entities_id),
             'contatos'             => self::contatosDe($entities_id)
          ];
@@ -98,6 +103,18 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
       }
       if (array_key_exists('observacao', $campos)) {
          $dados['observacao'] = mb_substr(trim((string)$campos['observacao']), 0, 255);
+      }
+      if (array_key_exists('itilcategories_id', $campos)) {
+         $dados['itilcategories_id'] = self::categoriaValida((int)$campos['itilcategories_id']);
+      }
+      if (array_key_exists('usar_botoes', $campos)) {
+         $dados['usar_botoes'] = !empty($campos['usar_botoes']) ? 1 : 0;
+      }
+      if (array_key_exists('unidade_id', $campos)) {
+         $dados['unidade_id'] = self::unidadeValida($entities_id, (int)$campos['unidade_id']);
+      }
+      if (array_key_exists('setor', $campos)) {
+         $dados['setor'] = self::setorValido($entities_id, (string)$campos['setor']);
       }
 
       if (self::porEntidade($entities_id) === null) {
@@ -130,6 +147,192 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
    }
 
    // ============================================
+   // Abertura de chamados: categoria e Unidade/Setor do plugin Botoes
+   // ============================================
+
+   const TABELA_BOTOES_DADOS  = 'glpi_plugin_botoes_clientedados';
+   const TABELA_BOTOES_CAMPOS = 'glpi_plugin_botoes_itemcampos';
+
+   /**
+    * Plugin Botoes ativo e com as tabelas de Unidade/Setor
+    */
+   static function botoesDisponivel(): bool {
+      global $DB;
+      return Plugin::isPluginActive('botoes')
+         && $DB->tableExists(self::TABELA_BOTOES_DADOS)
+         && $DB->tableExists(self::TABELA_BOTOES_CAMPOS);
+   }
+
+   /**
+    * Unidades e setores cadastrados no plugin Botoes para a entidade (lidos da tabela dele)
+    *
+    * @return array{disponivel:bool, unidades:array, setores:array}
+    */
+   static function listasBotoes(int $entities_id): array {
+      global $DB;
+
+      $listas = ['disponivel' => self::botoesDisponivel(), 'unidades' => [], 'setores' => []];
+      if (!$listas['disponivel']) {
+         return $listas;
+      }
+
+      foreach ($DB->request([
+         'SELECT' => ['id', 'tipo', 'nome'],
+         'FROM'   => self::TABELA_BOTOES_DADOS,
+         'WHERE'  => ['entities_id' => $entities_id, 'tipo' => ['unidade', 'setor']],
+         'ORDER'  => 'nome ASC'
+      ]) as $linha) {
+         $chave = $linha['tipo'] === 'unidade' ? 'unidades' : 'setores';
+         $listas[$chave][] = ['id' => (int)$linha['id'], 'nome' => (string)$linha['nome']];
+      }
+
+      return $listas;
+   }
+
+   static function categoriaValida(int $id): int {
+      return $id > 0 && countElementsInTable('glpi_itilcategories', ['id' => $id]) > 0 ? $id : 0;
+   }
+
+   /** Unidade so vale se estiver cadastrada no Botoes para a propria entidade do cliente */
+   static function unidadeValida(int $entities_id, int $id): int {
+      if ($id <= 0 || !self::botoesDisponivel()) {
+         return 0;
+      }
+      return countElementsInTable(self::TABELA_BOTOES_DADOS, ['id' => $id, 'tipo' => 'unidade', 'entities_id' => $entities_id]) > 0 ? $id : 0;
+   }
+
+   /** Setor da lista do Botoes; sem setores cadastrados, texto livre em maiusculas (como o Botoes faz) */
+   static function setorValido(int $entities_id, string $setor): string {
+      $setor = mb_substr(trim((string)preg_replace('/\s+/', ' ', strip_tags($setor))), 0, 255);
+      if ($setor === '') {
+         return '';
+      }
+
+      $setores = array_column(self::listasBotoes($entities_id)['setores'], 'nome');
+      if (empty($setores)) {
+         return mb_strtoupper($setor, 'UTF-8');
+      }
+      return in_array($setor, $setores, true) ? $setor : '';
+   }
+
+   static function nomeUnidade(int $id): string {
+      global $DB;
+      if ($id <= 0 || !$DB->tableExists(self::TABELA_BOTOES_DADOS)) {
+         return '';
+      }
+      foreach ($DB->request(['SELECT' => ['nome'], 'FROM' => self::TABELA_BOTOES_DADOS, 'WHERE' => ['id' => $id], 'LIMIT' => 1]) as $linha) {
+         return (string)$linha['nome'];
+      }
+      return '';
+   }
+
+   static function codigoPorId(int $id): ?array {
+      global $DB;
+      foreach ($DB->request(['FROM' => self::TABELA_CODIGOS, 'WHERE' => ['id' => $id], 'LIMIT' => 1]) as $linha) {
+         return $linha;
+      }
+      return null;
+   }
+
+   /**
+    * O que o chamado aberto pelo WhatsApp recebe: o codigo usado tem prioridade sobre o cliente
+    *
+    * @return array{categoria:int, usar_botoes:bool, unidade_id:int, unidade:string, setor:string}
+    */
+   static function parametrosAbertura(string $telefone): array {
+      $parametros = ['categoria' => 0, 'usar_botoes' => false, 'unidade_id' => 0, 'unidade' => '', 'setor' => ''];
+
+      $identidade = self::identidadeDaSessao($telefone);
+      $entities_id = (int)$identidade['entities_id'];
+      $cliente = $entities_id > 0 ? self::porEntidade($entities_id) : null;
+      if ($cliente === null) {
+         return $parametros;
+      }
+
+      $codigo = !empty($identidade['codigos_id']) ? self::codigoPorId((int)$identidade['codigos_id']) : null;
+      if ($codigo !== null && (int)$codigo['entities_id'] !== $entities_id) {
+         $codigo = null;
+      }
+
+      $parametros['categoria'] = (int)($codigo['itilcategories_id'] ?? 0) ?: (int)$cliente['itilcategories_id'];
+
+      if ((int)$cliente['usar_botoes'] === 1 && self::botoesDisponivel()) {
+         $parametros['usar_botoes'] = true;
+         $parametros['unidade_id']  = self::unidadeValida($entities_id, (int)($codigo['unidade_id'] ?? 0) ?: (int)$cliente['unidade_id']);
+         $parametros['unidade']     = self::nomeUnidade($parametros['unidade_id']);
+         $parametros['setor']       = trim((string)($codigo['setor'] ?? '')) !== '' ? (string)$codigo['setor'] : (string)($cliente['setor'] ?? '');
+      }
+
+      return $parametros;
+   }
+
+   /**
+    * Grava Unidade, Setor e Telefone do chamado na tabela do plugin Botoes, no mesmo formato
+    * do formulario dele (so os campos ativos na configuracao do Botoes)
+    */
+   static function gravarCamposBotoes(string $itemtype, int $items_id, array $parametros, string $telefone, array $identidade): void {
+      global $DB;
+
+      if ($items_id <= 0 || empty($parametros['usar_botoes']) || !self::botoesDisponivel()) {
+         return;
+      }
+
+      $ativos = ['unidade' => true, 'setor' => true, 'telefone' => true];
+      if (class_exists('PluginBotoesCampos') && method_exists('PluginBotoesCampos', 'getConfig')) {
+         foreach (PluginBotoesCampos::getConfig() as $campo => $cfg) {
+            $ativos[$campo] = !empty($cfg['ativo']);
+         }
+      }
+
+      // Telefone do contato ou o do WhatsApp, sem o 55, formatado como o Botoes exibe
+      $numero = PluginWhatsappempresaConfig::limparTelefone((string)($identidade['contato']['telefone'] ?? $telefone));
+      if (strlen($numero) > 11 && str_starts_with($numero, '55')) {
+         $numero = substr($numero, 2);
+      }
+      $formatado = '';
+      if (strlen($numero) === 11) {
+         $formatado = '(' . substr($numero, 0, 2) . ') ' . substr($numero, 2, 5) . '-' . substr($numero, 7);
+      } elseif (strlen($numero) === 10) {
+         $formatado = '(' . substr($numero, 0, 2) . ') ' . substr($numero, 2, 4) . '-' . substr($numero, 6);
+      }
+
+      $linha = [
+         'unidade_id' => $ativos['unidade'] ? (int)$parametros['unidade_id'] : 0,
+         'unidade'    => $ativos['unidade'] ? (string)$parametros['unidade'] : '',
+         'setor'      => $ativos['setor'] ? (string)$parametros['setor'] : '',
+         'telefone'   => $ativos['telefone'] ? $formatado : ''
+      ];
+
+      if ($linha['unidade_id'] === 0 && $linha['setor'] === '' && $linha['telefone'] === '') {
+         return;
+      }
+
+      if (countElementsInTable(self::TABELA_BOTOES_CAMPOS, ['itemtype' => $itemtype, 'items_id' => $items_id]) > 0) {
+         $DB->update(self::TABELA_BOTOES_CAMPOS, $linha, ['itemtype' => $itemtype, 'items_id' => $items_id]);
+      } else {
+         $DB->insert(self::TABELA_BOTOES_CAMPOS, $linha + ['itemtype' => $itemtype, 'items_id' => $items_id]);
+      }
+   }
+
+   /**
+    * Categorias do GLPI para os seletores da aba Clientes
+    */
+   static function categorias(): array {
+      global $DB;
+
+      $lista = [];
+      foreach ($DB->request([
+         'SELECT' => ['id', 'completename'],
+         'FROM'   => 'glpi_itilcategories',
+         'ORDER'  => 'completename ASC',
+         'LIMIT'  => 500
+      ]) as $linha) {
+         $lista[] = ['id' => (int)$linha['id'], 'nome' => (string)$linha['completename']];
+      }
+      return $lista;
+   }
+
+   // ============================================
    // Codigos de acesso
    // ============================================
 
@@ -138,16 +341,18 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
 
       $itens = [];
       foreach ($DB->request([
-         'SELECT' => ['id', 'codigo', 'descricao', 'is_ativo'],
          'FROM'   => self::TABELA_CODIGOS,
          'WHERE'  => ['entities_id' => $entities_id, 'is_deleted' => 0],
          'ORDER'  => 'id ASC'
       ]) as $linha) {
          $itens[] = [
-            'id'        => (int)$linha['id'],
-            'codigo'    => (string)$linha['codigo'],
-            'descricao' => (string)($linha['descricao'] ?? ''),
-            'is_ativo'  => (int)$linha['is_ativo']
+            'id'                => (int)$linha['id'],
+            'codigo'            => (string)$linha['codigo'],
+            'descricao'         => (string)($linha['descricao'] ?? ''),
+            'is_ativo'          => (int)$linha['is_ativo'],
+            'itilcategories_id' => (int)($linha['itilcategories_id'] ?? 0),
+            'unidade_id'        => (int)($linha['unidade_id'] ?? 0),
+            'setor'             => (string)($linha['setor'] ?? '')
          ];
       }
 
@@ -195,6 +400,17 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
          'is_ativo'    => !array_key_exists('is_ativo', $dados) || !empty($dados['is_ativo']) ? 1 : 0,
          'entities_id' => $entities_id
       ];
+
+      // Categoria, Unidade e Setor proprios do codigo (vazio = usa os do cliente)
+      if (array_key_exists('itilcategories_id', $dados)) {
+         $campos['itilcategories_id'] = self::categoriaValida((int)$dados['itilcategories_id']);
+      }
+      if (array_key_exists('unidade_id', $dados)) {
+         $campos['unidade_id'] = self::unidadeValida($entities_id, (int)$dados['unidade_id']);
+      }
+      if (array_key_exists('setor', $dados)) {
+         $campos['setor'] = self::setorValido($entities_id, (string)$dados['setor']);
+      }
 
       if ($id > 0) {
          $DB->update(self::TABELA_CODIGOS, $campos, ['id' => $id, 'entities_id' => $entities_id]);
@@ -392,7 +608,7 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
    static function identidadeDaSessao(string $telefone): array {
       global $DB;
 
-      $vazio = ['entities_id' => 0, 'entidade' => '', 'contato' => null];
+      $vazio = ['entities_id' => 0, 'entidade' => '', 'contato' => null, 'codigos_id' => 0];
       $numero = PluginWhatsappempresaConfig::limparTelefone($telefone);
       if ($numero === '' || !$DB->fieldExists('glpi_plugin_whatsappempresa_sessoes', 'contatos_id')) {
          return $vazio;
@@ -405,7 +621,8 @@ class PluginWhatsappempresaCliente extends CommonGLPI {
       return [
          'entities_id' => $entities_id,
          'entidade'    => $entities_id > 0 ? self::nomeEntidade($entities_id) : '',
-         'contato'     => $contatos_id > 0 ? self::contatoPorId($contatos_id) : null
+         'contato'     => $contatos_id > 0 ? self::contatoPorId($contatos_id) : null,
+         'codigos_id'  => (int)($sessao['codigos_id'] ?? 0)
       ];
    }
 

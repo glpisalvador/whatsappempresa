@@ -2,7 +2,9 @@
 
 .waen-botao {
    position: fixed !important;
-   right: 18px !important;
+   /* Lado esquerdo, logo depois do menu lateral do GLPI (ajustado pelo notificacoes.js) */
+   left: var(--waen-esquerda, 18px) !important;
+   right: auto !important;
    bottom: 18px !important;
    z-index: 1035 !important;
    display: inline-flex !important;
@@ -56,11 +58,12 @@
 
 .waen-painel {
    position: fixed !important;
-   right: 18px;
+   left: var(--waen-esquerda, 18px);
+   right: auto;
    bottom: 64px;
    z-index: 1036;
    width: 380px;
-   max-width: calc(100vw - 30px);
+   max-width: calc(100vw - var(--waen-esquerda, 18px) - 18px);
    background: #ffffff;
    border: 1px solid #dee2e6;
    border-radius: 6px;

@@ -67,6 +67,19 @@ function plugin_whatsappempresa_migrar(): void {
    // Cliente (entidade) e contato identificados: sobrevivem as trocas de etapa
    plugin_whatsappempresa_coluna($sessoes, 'entities_id', "int unsigned NOT NULL DEFAULT 0");
    plugin_whatsappempresa_coluna($sessoes, 'contatos_id', "int unsigned NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($sessoes, 'codigos_id', "int unsigned NOT NULL DEFAULT 0");
+
+   // Abertura de chamados por cliente e por codigo: categoria e Unidade/Setor do plugin Botoes
+   $clientes = 'glpi_plugin_whatsappempresa_clientes';
+   plugin_whatsappempresa_coluna($clientes, 'itilcategories_id', "int unsigned NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($clientes, 'usar_botoes', "tinyint(1) NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($clientes, 'unidade_id', "int unsigned NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($clientes, 'setor', "varchar(255) DEFAULT NULL");
+
+   $codigos = 'glpi_plugin_whatsappempresa_codigos';
+   plugin_whatsappempresa_coluna($codigos, 'itilcategories_id', "int unsigned NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($codigos, 'unidade_id', "int unsigned NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($codigos, 'setor', "varchar(255) DEFAULT NULL");
    plugin_whatsappempresa_alargar($sessoes, 'fluxo', "varchar(30) NOT NULL DEFAULT 'menu'");
    plugin_whatsappempresa_alargar($sessoes, 'etapa', "varchar(60) NOT NULL DEFAULT 'inicio'");
    plugin_whatsappempresa_indice($sessoes, 'jid', 'jid');

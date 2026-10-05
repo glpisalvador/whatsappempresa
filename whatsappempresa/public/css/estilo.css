@@ -1973,8 +1973,18 @@ td.wae-vazio {
    color: #6c757d;
 }
 
-.wae-clientes .form-control.wae-salvo {
+.wae-clientes .form-control.wae-salvo,
+.wae-clientes .form-select.wae-salvo {
    border-color: #198754;
    box-shadow: 0 0 0 2px rgba(25, 135, 84, 0.15);
    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.wae-clientes .wae-cli-novo-codigo {
+   max-width: 520px;
+}
+
+.wae-clientes .table select,
+.wae-clientes .table input[type="text"] {
+   min-width: 120px;
 }

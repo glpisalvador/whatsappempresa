@@ -2283,7 +2283,9 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
          'status'              => CommonITILObject::INCOMING
       ];
 
-      $categoria = (int)($config['categoria'] ?? 0);
+      // Categoria escolhida no bloco; sem ela, a do codigo/cliente do autoatendimento
+      $parametros = PluginWhatsappempresaCliente::parametrosAbertura($telefone);
+      $categoria = (int)($config['categoria'] ?? 0) ?: (int)$parametros['categoria'];
       if ($categoria > 0) {
          $dados['itilcategories_id'] = $categoria;
       }
@@ -2304,6 +2306,11 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
 
       $item = new $classe();
       $novo = $item->add($dados);
+
+      // Unidade e Setor do cliente/codigo nos campos adicionais do plugin Botoes
+      if ($novo) {
+         PluginWhatsappempresaCliente::gravarCamposBotoes($classe, (int)$novo, $parametros, $telefone, $identidade);
+      }
 
       return $novo ? (int)$novo : 0;
    }
