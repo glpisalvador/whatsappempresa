@@ -2050,11 +2050,18 @@ class PluginWhatsappempresaFluxo {
          return;
       }
 
+      // Com alguem logado (aba do chamado, painel, cron interno) a sessao real e mantida:
+      // sobrescreve-la deixa o perfil incompleto e quebra as telas seguintes do usuario
+      if ((int)Session::getLoginUserID() > 0 && empty($_SESSION['wae_sessao_assumida'])) {
+         return;
+      }
+
       $usuario = new User();
       if (!$usuario->getFromDB($users_id)) {
          return;
       }
 
+      $_SESSION['wae_sessao_assumida'] = true;
       $_SESSION['glpiID']            = $users_id;
       $_SESSION['glpiname']          = $usuario->fields['name'];
       $_SESSION['glpirealname']      = $usuario->fields['realname'] ?? '';
@@ -2079,7 +2086,6 @@ class PluginWhatsappempresaFluxo {
 
       $_SESSION['glpiactiveentities']        = array_values(array_unique($entidades));
       $_SESSION['glpiactiveentities_string'] = implode(',', $_SESSION['glpiactiveentities']);
-
       // Sem os direitos do perfil o GLPI recusa gravar acompanhamento e chamado
       if ($profiles_id > 0) {
          $perfil = new Profile();
