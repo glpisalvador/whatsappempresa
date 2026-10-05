@@ -986,13 +986,18 @@ class PluginWhatsappempresaServidor {
    /**
     * Aceita texto simples ou estrutura com botoes e lista clicavel
     */
-   static function enviarTexto(string $telefone, $conteudo, ?array $midia = null): array {
+   static function enviarTexto(string $telefone, $conteudo, ?array $midia = null, ?array $citar = null): array {
       $numero = PluginWhatsappempresaConfig::limparTelefone($telefone);
       if (strlen($numero) < 10) {
          return ['ok' => false, 'erro' => 'Telefone invalido', 'jid' => ''];
       }
 
       $corpo = ['telefone' => $numero];
+
+      // Resposta citando outra mensagem: { wa_id, de_mim, texto }
+      if ($citar !== null) {
+         $corpo['citar'] = $citar;
+      }
 
       // Imagem ou audio: o arquivo ja esta na pasta de midia, que o Node le direto
       if ($midia !== null) {
@@ -1011,7 +1016,8 @@ class PluginWhatsappempresaServidor {
             'ok'        => true,
             'erro'      => null,
             'jid'       => (string)($r['dados']['jid'] ?? ''),
-            'convertido' => $r['dados']['convertido'] ?? null
+            'convertido' => $r['dados']['convertido'] ?? null,
+            'wa_id'      => (string)($r['dados']['wa_id'] ?? '')
          ];
       }
 
@@ -1040,6 +1046,19 @@ class PluginWhatsappempresaServidor {
          return ['ok' => false, 'erro' => $r['dados']['erro'] ?? 'Servidor WhatsApp indisponivel', 'jid' => ''];
       }
 
-      return ['ok' => true, 'erro' => null, 'jid' => (string)($r['dados']['jid'] ?? '')];
+      return ['ok' => true, 'erro' => null, 'jid' => (string)($r['dados']['jid'] ?? ''), 'wa_id' => (string)($r['dados']['wa_id'] ?? '')];
+   }
+
+   /**
+    * Reacao (emoji) numa mensagem do WhatsApp; emoji vazio remove
+    */
+   static function reagir(string $telefone, string $wa_id, bool $deMim, string $emoji): array {
+      $r = self::requisitar('POST', '/reagir', [
+         'telefone' => PluginWhatsappempresaConfig::limparTelefone($telefone),
+         'wa_id'    => $wa_id,
+         'de_mim'   => $deMim,
+         'emoji'    => $emoji
+      ], 20);
+      return ['ok' => (bool)$r['ok'], 'erro' => $r['ok'] ? null : ($r['dados']['erro'] ?? 'Servidor WhatsApp indisponivel')];
    }
 }

@@ -69,7 +69,34 @@ function wae_marca_ticket(int $tickets_id): string {
 
    $total = countElementsInTable('glpi_plugin_whatsappempresa_mensagens', ['conversas_id' => $conversas]);
 
-   return $ultimo . ':' . $total . ':' . md5($carimbo);
+   // Reacoes e confirmacoes de envio alteram a mensagem sem criar outra
+   $alterada = '';
+   foreach ($DB->request([
+      'SELECT' => [new \Glpi\DBAL\QueryExpression('MAX(' . $DB->quoteName('date_mod') . ') AS alterada')],
+      'FROM'   => 'glpi_plugin_whatsappempresa_mensagens',
+      'WHERE'  => ['conversas_id' => $conversas]
+   ]) as $linha) {
+      $alterada = (string)($linha['alterada'] ?? '');
+   }
+
+   return $ultimo . ':' . $total . ':' . md5($carimbo . $alterada);
+}
+
+/**
+ * Mensagem citada no envio (citar_id), somente de conversa que o usuario pode ver
+ */
+function wae_mensagem_citada(): ?array {
+   global $DB;
+   $id = (int)($_POST['citar_id'] ?? 0);
+   if ($id <= 0) {
+      return null;
+   }
+   foreach ($DB->request(['FROM' => 'glpi_plugin_whatsappempresa_mensagens', 'WHERE' => ['id' => $id], 'LIMIT' => 1]) as $linha) {
+      if (!empty($linha['wa_id']) && PluginWhatsappempresaConversa::podeVerConversa((int)$linha['conversas_id'])) {
+         return $linha;
+      }
+   }
+   return null;
 }
 
 function wae_exigir_admin(): void {
@@ -342,7 +369,7 @@ switch ($acao) {
          }
       }
 
-      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $texto, $tickets_id, $nome);
+      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $texto, $tickets_id, $nome, null, wae_mensagem_citada());
 
       wae_responder([
          'sucesso'  => $resultado['ok'],
@@ -372,7 +399,7 @@ switch ($acao) {
          wae_responder(['sucesso' => false, 'mensagem' => $midia]);
       }
 
-      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $legenda, $tickets_id, $nome, $midia);
+      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $legenda, $tickets_id, $nome, $midia, wae_mensagem_citada());
 
       wae_responder([
          'sucesso'  => $resultado['ok'],
@@ -380,6 +407,35 @@ switch ($acao) {
             ? ($tipo === 'audio' ? 'Audio enviado.' : 'Imagem enviada.')
             : (string)$resultado['erro']
       ]);
+
+   case 'mensagens_ao_vivo':
+      // Aba Mensagens da configuracao: todas as mensagens enviadas e recebidas
+      wae_exigir_admin();
+      $resultado = PluginWhatsappempresaMensagem::historicoAoVivo([
+         'direcao'     => (string)($_GET['direcao'] ?? ''),
+         'tipo'        => (string)($_GET['tipo'] ?? ''),
+         'busca'       => (string)($_GET['busca'] ?? ''),
+         'com_chamado' => !empty($_GET['com_chamado'])
+      ], (int)($_GET['depois'] ?? 0), (int)($_GET['antes'] ?? 0), max(10, min(200, (int)($_GET['limite'] ?? 100))));
+      wae_responder(['sucesso' => true] + $resultado + ['tipos' => PluginWhatsappempresaMensagem::TIPOS_HISTORICO]);
+
+   case 'conversa_reagir':
+      // Reacao (emoji) do atendente numa mensagem; emoji vazio remove
+      $mensagens_id = (int)($_POST['mensagens_id'] ?? 0);
+      $emoji = mb_substr(trim((string)($_POST['emoji'] ?? '')), 0, 16);
+      $linha = null;
+      foreach ($DB->request(['FROM' => 'glpi_plugin_whatsappempresa_mensagens', 'WHERE' => ['id' => $mensagens_id], 'LIMIT' => 1]) as $registro) {
+         $linha = $registro;
+      }
+      if ($linha === null || empty($linha['wa_id']) || !PluginWhatsappempresaConversa::podeVerConversa((int)$linha['conversas_id'])) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Esta mensagem nao pode receber reacao.']);
+      }
+      $envio = PluginWhatsappempresaServidor::reagir((string)$linha['telefone'], (string)$linha['wa_id'], $linha['direcao'] === 'saida', $emoji);
+      if (!$envio['ok']) {
+         wae_responder(['sucesso' => false, 'mensagem' => (string)$envio['erro']]);
+      }
+      $DB->update('glpi_plugin_whatsappempresa_mensagens', ['reacao_atendente' => $emoji !== '' ? $emoji : null], ['id' => $mensagens_id]);
+      wae_responder(['sucesso' => true]);
 
    case 'midia':
       // Arquivo de imagem ou audio de uma mensagem, conferindo quem pode ver a conversa

@@ -92,10 +92,55 @@ const registrador = pino({ level: 'silent' });
 const enviadas = new Map();
 const LIMITE_ENVIADAS = 3000;
 
-async function enviarGuardando(destino, conteudo) {
-   const enviada = await socket.sendMessage(destino, conteudo);
+async function enviarGuardando(destino, conteudo, opcoes) {
+   const enviada = await socket.sendMessage(destino, conteudo, opcoes || {});
    if (enviada && enviada.key) guardarEnviada(enviada.key.id, enviada.message);
    return enviada;
+}
+
+/**
+ * Mensagem citada no formato que o Baileys espera em { quoted }.
+ * citar: { wa_id, de_mim, texto } vindo do GLPI
+ */
+function mensagemCitada(destino, citar) {
+   if (!citar || !citar.wa_id) return null;
+   const deMim = !!citar.de_mim;
+   return {
+      key: {
+         remoteJid: destino,
+         fromMe: deMim,
+         id: String(citar.wa_id),
+         participant: deMim ? undefined : destino
+      },
+      message: { conversation: String(citar.texto || '') }
+   };
+}
+
+/**
+ * Texto de uma mensagem citada (para mostrar no GLPI)
+ */
+function textoDaCitada(citada) {
+   if (!citada) return '';
+   const c = normalizeMessageContent(citada) || {};
+   if (c.conversation) return c.conversation;
+   if (c.extendedTextMessage?.text) return c.extendedTextMessage.text;
+   if (c.imageMessage) return '📷 ' + (c.imageMessage.caption || 'Imagem');
+   if (c.audioMessage) return '🎤 Áudio';
+   if (c.videoMessage) return '🎬 ' + (c.videoMessage.caption || 'Vídeo');
+   if (c.documentMessage) return '📄 ' + (c.documentMessage.fileName || 'Documento');
+   if (c.stickerMessage) return '🏷️ Figurinha';
+   return '';
+}
+
+/**
+ * Citacao contida na mensagem recebida (resposta a uma mensagem anterior)
+ */
+function citacaoDaMensagem(mensagem) {
+   const c = normalizeMessageContent(mensagem.message) || {};
+   const tipo = Object.keys(c).find((chave) => c[chave] && c[chave].contextInfo && c[chave].contextInfo.stanzaId);
+   if (!tipo) return null;
+   const info = c[tipo].contextInfo;
+   return { wa_id: String(info.stanzaId), texto: textoDaCitada(info.quotedMessage).substring(0, 500) };
 }
 
 function guardarEnviada(id, conteudo) {
@@ -413,7 +458,7 @@ function extrairTexto(mensagem) {
 /**
  * Entrega a mensagem recebida ao GLPI e devolve as respostas
  */
-async function consultarGlpi(telefone, texto, jid, tentativa = 1, midia = null) {
+async function consultarGlpi(telefone, texto, jid, tentativa = 1, midia = null, extra = {}) {
    if (!WEBHOOK) {
       registrar('Webhook nao configurado', 'a variavel WAE_WEBHOOK chegou vazia');
       return [];
@@ -426,7 +471,7 @@ async function consultarGlpi(telefone, texto, jid, tentativa = 1, midia = null) 
             'Content-Type': 'application/json',
             'X-Token-Interno': TOKEN
          },
-         body: JSON.stringify({ telefone, texto, jid, token: TOKEN, midia })
+         body: JSON.stringify({ telefone, texto, jid, token: TOKEN, midia, wa_id: extra.wa_id || '', citada: extra.citada || null })
       });
 
       const bruto = await resposta.text();
@@ -436,7 +481,7 @@ async function consultarGlpi(telefone, texto, jid, tentativa = 1, midia = null) 
 
          if (resposta.status >= 500 && tentativa < 2) {
             await new Promise((r) => setTimeout(r, 1500));
-            return consultarGlpi(telefone, texto, jid, tentativa + 1, midia);
+            return consultarGlpi(telefone, texto, jid, tentativa + 1, midia, extra);
          }
 
          return [];
@@ -472,7 +517,7 @@ async function consultarGlpi(telefone, texto, jid, tentativa = 1, midia = null) 
 
       if (tentativa < 2) {
          await new Promise((r) => setTimeout(r, 1500));
-         return consultarGlpi(telefone, texto, jid, tentativa + 1, midia);
+         return consultarGlpi(telefone, texto, jid, tentativa + 1, midia, extra);
       }
 
       return [];
@@ -735,7 +780,7 @@ function webmParaOgg(buf) {
 /**
  * Envia imagem ou audio tentando cada endereco conhecido do contato (LID primeiro)
  */
-async function enviarMidia(telefone, midia, legenda) {
+async function enviarMidia(telefone, midia, legenda, citar) {
    if (!conectado || !socket) {
       throw new Error('WhatsApp nao esta conectado');
    }
@@ -767,12 +812,13 @@ async function enviarMidia(telefone, midia, legenda) {
 
    for (const endereco of enderecos) {
       try {
-         await enviarGuardando(endereco, conteudo);
+         const citada = mensagemCitada(endereco, citar);
+         const enviada = await enviarGuardando(endereco, conteudo, citada ? { quoted: citada } : {});
          // Audio nao tem legenda no WhatsApp: o texto vai em seguida
          if (midia.tipo === 'audio' && legenda) {
             await enviarGuardando(endereco, { text: legenda });
          }
-         return { jid: endereco, convertido };
+         return { jid: endereco, convertido, id: enviada && enviada.key ? enviada.key.id : '' };
       } catch (e) {
          falhas.push(`${endereco}: ${e.message}`);
          registrar('Endereco recusado pelo WhatsApp', `${endereco} - ${e.message}`);
@@ -790,6 +836,27 @@ async function tratarRecebida(mensagem) {
    if (jid.endsWith('@newsletter')) return;
    if (jid.endsWith('@broadcast')) return;
    if (jid === 'status@broadcast') return;
+
+   // Reacao (emoji) do cliente numa mensagem: vai para o GLPI marcar a mensagem, sem passar pelos fluxos
+   const conteudoBruto = normalizeMessageContent(mensagem.message) || {};
+   if (conteudoBruto.reactionMessage) {
+      const reacao = conteudoBruto.reactionMessage;
+      let foneReacao = await telefoneDaMensagem(mensagem);
+      if (foneReacao === '') foneReacao = numeroDoJid(jid);
+      registrar('Reacao recebida', `${foneReacao}: ${reacao.text || '(removida)'}`);
+      if (WEBHOOK) {
+         try {
+            await fetch(WEBHOOK, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json', 'X-Token-Interno': TOKEN },
+               body: JSON.stringify({ token: TOKEN, telefone: foneReacao, reacao: { wa_id: String(reacao.key?.id || ''), emoji: String(reacao.text || '') } })
+            });
+         } catch (e) {
+            registrar('Falha ao avisar a reacao ao GLPI', e.message);
+         }
+      }
+      return;
+   }
 
    let texto = extrairTexto(mensagem).trim();
    const infoMidia = midiaDaMensagem(mensagem);
@@ -827,7 +894,7 @@ async function tratarRecebida(mensagem) {
    const anterior = fila.get(jid) || Promise.resolve();
 
    const atual = anterior.then(async () => {
-      const respostas = await consultarGlpi(telefone, texto, jid, 1, midia);
+      const respostas = await consultarGlpi(telefone, texto, jid, 1, midia, { wa_id: mensagem.key?.id || '', citada: citacaoDaMensagem(mensagem) });
       const confirmacoes = [];
 
       for (const resposta of respostas) {
@@ -1125,13 +1192,14 @@ async function enviarListaClassica(jid, dados) {
 /**
  * Envia o texto puro tentando cada endereco conhecido do contato
  */
-async function enviarTextoPuro(jid, telefone, conteudo) {
+async function enviarTextoPuro(jid, telefone, conteudo, citar, saida) {
    const enderecos = candidatosDeEnvio(jid, telefone);
    const falhas = [];
 
    for (const endereco of enderecos) {
       try {
-         await enviarGuardando(endereco, { text: conteudo });
+         const citada = mensagemCitada(endereco, citar);
+         const enviada = await enviarGuardando(endereco, { text: conteudo }, citada ? { quoted: citada } : {});
 
          if (telefone) {
             associar(String(telefone).replace(/\D/g, ''), endereco);
@@ -1141,6 +1209,7 @@ async function enviarTextoPuro(jid, telefone, conteudo) {
             registrar('Mensagem enviada por endereco alternativo', `${jid} atendido em ${endereco}`);
          }
 
+         if (saida) saida.id = enviada && enviada.key ? enviada.key.id : '';
          return endereco;
       } catch (e) {
          falhas.push(`${endereco}: ${e.message}`);
@@ -1151,7 +1220,7 @@ async function enviarTextoPuro(jid, telefone, conteudo) {
    throw new Error('Nenhum endereco aceitou a mensagem (' + falhas.join(' | ') + ')');
 }
 
-async function enviarParaJid(jid, resposta, telefone) {
+async function enviarParaJid(jid, resposta, telefone, citar, saida) {
    if (!conectado || !socket) {
       throw new Error('WhatsApp nao esta conectado');
    }
@@ -1164,9 +1233,9 @@ async function enviarParaJid(jid, resposta, telefone) {
 
    const temOpcoes = dados.botoes.length > 0 || (dados.lista && dados.lista.itens.length > 0);
 
-   // Sem opcoes, ou contato que ja recusou botoes: texto puro
+   // Sem opcoes, ou contato que ja recusou botoes: texto puro (com citacao, se houver)
    if (!temOpcoes || semBotoes.has(jid)) {
-      await enviarTextoPuro(jid, telefone, textoNumerado(dados));
+      await enviarTextoPuro(jid, telefone, textoNumerado(dados), citar, saida);
       return true;
    }
 
@@ -1185,6 +1254,7 @@ async function enviarParaJid(jid, resposta, telefone) {
 
          if (aceita) {
             registrar('Opcoes enviadas', `${destino} via ${nome}`);
+            if (saida) saida.id = id || '';
             return true;
          }
 
@@ -1198,18 +1268,37 @@ async function enviarParaJid(jid, resposta, telefone) {
    semBotoes.add(jid);
    registrar('Contato sem suporte a botoes', `${jid} passa a receber texto numerado`);
 
-   await enviarTextoPuro(jid, telefone, textoNumerado(dados));
+   await enviarTextoPuro(jid, telefone, textoNumerado(dados), null, saida);
 
    return true;
 }
 
-async function enviarTexto(telefone, resposta) {
+/**
+ * Envia e devolve { jid, id }: o id do WhatsApp fica gravado no GLPI para citar/reagir depois
+ */
+async function enviarTexto(telefone, resposta, citar) {
    if (!conectado || !socket) {
       throw new Error('WhatsApp nao esta conectado');
    }
    const jid = await resolverJid(telefone);
-   await enviarParaJid(jid, resposta, telefone);
-   return jid;
+   const saida = { id: '' };
+   await enviarParaJid(jid, resposta, telefone, citar, saida);
+   return { jid, id: saida.id };
+}
+
+/**
+ * Reacao (emoji) numa mensagem da conversa; emoji vazio remove a reacao
+ */
+async function reagir(telefone, waId, deMim, emoji) {
+   if (!conectado || !socket) {
+      throw new Error('WhatsApp nao esta conectado');
+   }
+   const jid = await resolverJid(telefone);
+   const destino = candidatosDeEnvio(jid, telefone)[0] || jid;
+   await socket.sendMessage(destino, {
+      react: { text: String(emoji || ''), key: { remoteJid: destino, fromMe: !!deMim, id: String(waId) } }
+   });
+   return destino;
 }
 
 async function pararServico() {
@@ -1292,10 +1381,10 @@ const servidor = http.createServer(async (req, res) => {
 
       if (dados.telefone && dados.midia && dados.midia.arquivo) {
          try {
-            const { jid: jidUsado, convertido } = await enviarMidia(dados.telefone, dados.midia, String(dados.texto || '').trim());
+            const { jid: jidUsado, convertido, id: waId } = await enviarMidia(dados.telefone, dados.midia, String(dados.texto || '').trim(), dados.citar || null);
             registrar('Midia enviada', `${dados.telefone} via ${jidUsado} - ${dados.midia.tipo}${convertido ? ' (convertido para OGG, ' + convertido.segundos + 's)' : ''}`);
             res.writeHead(200);
-            res.end(JSON.stringify({ ok: true, jid: jidUsado, convertido }));
+            res.end(JSON.stringify({ ok: true, jid: jidUsado, convertido, wa_id: waId }));
          } catch (e) {
             registrar('Falha no envio de midia', e.message);
             res.writeHead(500);
@@ -1310,17 +1399,37 @@ const servidor = http.createServer(async (req, res) => {
          return;
       }
       try {
-         const jidUsado = await enviarTexto(dados.telefone, {
+         const { jid: jidUsado, id: waId } = await enviarTexto(dados.telefone, {
             texto: dados.texto,
             rodape: dados.rodape || '',
             botoes: dados.botoes || [],
             lista: dados.lista || null
-         });
-         registrar('Mensagem enviada', `${dados.telefone} via ${jidUsado}`);
+         }, dados.citar || null);
+         registrar('Mensagem enviada', `${dados.telefone} via ${jidUsado}${dados.citar ? ' (respondendo mensagem citada)' : ''}`);
          res.writeHead(200);
-         res.end(JSON.stringify({ ok: true, jid: jidUsado }));
+         res.end(JSON.stringify({ ok: true, jid: jidUsado, wa_id: waId }));
       } catch (e) {
          registrar('Falha no envio', e.message);
+         res.writeHead(500);
+         res.end(JSON.stringify({ ok: false, erro: e.message }));
+      }
+      return;
+   }
+
+   if (req.method === 'POST' && req.url === '/reagir') {
+      const dados = await corpoDaRequisicao(req);
+      if (!dados.telefone || !dados.wa_id) {
+         res.writeHead(400);
+         res.end(JSON.stringify({ ok: false, erro: 'telefone e wa_id sao obrigatorios' }));
+         return;
+      }
+      try {
+         const destino = await reagir(dados.telefone, dados.wa_id, dados.de_mim, dados.emoji || '');
+         registrar('Reacao enviada', `${dados.telefone} via ${destino}: ${dados.emoji || '(removida)'}`);
+         res.writeHead(200);
+         res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+         registrar('Falha ao reagir', e.message);
          res.writeHead(500);
          res.end(JSON.stringify({ ok: false, erro: e.message }));
       }

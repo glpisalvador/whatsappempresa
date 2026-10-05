@@ -1,0 +1,71 @@
+{# Aba Mensagens: todas as mensagens enviadas e recebidas pelo WhatsApp, em tempo real #}
+<div class="card wae-historico" id="wae-historico">
+   <div class="card-header">
+      <div class="d-flex flex-wrap align-items-center gap-2 w-100">
+         <h3 class="card-title me-2"><i class="ti ti-messages me-2"></i>Mensagens</h3>
+
+         <span class="wae-ao-vivo" id="wae-hist-status" title="A tabela recebe as mensagens novas sozinha"><span class="wae-ao-vivo-ponto"></span>Ao vivo</span>
+
+         <div class="ms-auto d-flex flex-wrap align-items-center gap-2">
+            <div class="input-icon">
+               <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+               <input type="search" class="form-control form-control-sm" id="wae-hist-busca" placeholder="Número, texto ou #chamado" autocomplete="off">
+            </div>
+            <select class="form-select form-select-sm w-auto" id="wae-hist-direcao" title="Direção">
+               <option value="">Enviadas e recebidas</option>
+               <option value="entrada">Recebidas</option>
+               <option value="saida">Enviadas</option>
+            </select>
+            <select class="form-select form-select-sm w-auto" id="wae-hist-tipo" title="Origem">
+               <option value="">Todas as origens</option>
+               <option value="fluxo">Fluxo</option>
+               <option value="servidor">Servidor</option>
+               <option value="usuario">Usuário do GLPI</option>
+               <option value="contato_glpi">Contato do GLPI</option>
+               <option value="contato_cliente">Contato de cliente</option>
+               <option value="desconhecido">Não identificado</option>
+            </select>
+            <label class="form-check form-switch m-0" title="Somente mensagens ligadas a um chamado">
+               <input class="form-check-input" type="checkbox" id="wae-hist-chamado">
+               <span class="form-check-label small">Com chamado</span>
+            </label>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="wae-hist-pausar" title="Pausar a atualização automática">
+               <i class="ti ti-player-pause"></i>
+            </button>
+         </div>
+      </div>
+   </div>
+
+   <div class="table-responsive wae-hist-rolagem">
+      <table class="table table-sm table-hover table-vcenter card-table wae-hist-tabela">
+         <thead>
+            <tr>
+               <th>Data/hora</th>
+               <th></th>
+               <th>De</th>
+               <th>Para</th>
+               <th>Origem</th>
+               <th>Chamado</th>
+               <th>Mensagem</th>
+               <th class="text-center">Envio</th>
+            </tr>
+         </thead>
+         <tbody id="wae-hist-linhas">
+            <tr><td colspan="8" class="text-secondary"><i class="ti ti-loader-2 me-1"></i>Carregando...</td></tr>
+         </tbody>
+      </table>
+   </div>
+
+   <div class="card-footer d-flex align-items-center">
+      <span class="text-secondary small" id="wae-hist-contagem"></span>
+      <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="wae-hist-mais"><i class="ti ti-arrow-down me-1"></i>Carregar mais antigas</button>
+   </div>
+</div>
+
+<script>
+   $(function () {
+      if (window.WAEPainel && window.WAEPainel.iniciarMensagens) {
+         window.WAEPainel.iniciarMensagens('wae-historico');
+      }
+   });
+</script>
