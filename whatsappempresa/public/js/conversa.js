@@ -98,26 +98,20 @@
       });
 
       if (!abertas.length) {
-         caixa.innerHTML = '<span class="wae-ativa wae-ativa-vazia">' +
-            '<i class="ti ti-mood-empty"></i>' +
-            '<span>Nenhuma conversa aberta neste chamado</span></span>';
+         caixa.innerHTML = '<span class="text-secondary small"><i class="ti ti-mood-empty me-1"></i>Nenhuma conversa aberta</span>';
          return;
       }
 
       caixa.innerHTML = abertas.map(function (item) {
-         var origem = item.origem === 'tecnico' ? 'aberta pelo atendente' : 'aberta pelo cliente';
-         var vinculo = item.presa
-            ? '<span class="wae-ativa-marca"><i class="ti ti-lock"></i> <span>numero vinculado</span></span>'
-            : '<span class="wae-ativa-marca wae-ativa-solta"><i class="ti ti-unlink"></i> <span>numero livre</span></span>';
+         var origem = item.origem === 'tecnico' ? 'Aberta pelo atendente' : 'Aberta pelo cliente';
+         var numero = item.telefone && item.telefone !== item.contato ? ' (' + escapar(item.telefone) + ')' : '';
+         var marca = item.presa
+            ? '<span class="badge bg-green-lt" title="' + origem + ' - numero vinculado a esta conversa"><i class="ti ti-lock me-1"></i>'
+            : '<span class="badge bg-secondary-lt" title="' + origem + ' - numero livre"><i class="ti ti-unlink me-1"></i>';
 
-         return '<span class="wae-ativa">' +
-            '<i class="ti ti-message"></i>' +
-            '<span class="wae-ativa-nome">' + escapar(item.contato) + '</span>' +
-            '<span class="wae-ativa-origem">' + origem + '</span>' +
-            vinculo +
-            '<button type="button" class="btn wae-btn wae-btn-linha wae-btn-encerrar" data-encerrar="' + item.id + '">' +
-            '<i class="ti ti-circle-check"></i> <span>Encerrar conversa</span></button>' +
-            '</span>';
+         return marca + escapar(item.contato) + numero + '</span>' +
+            '<button type="button" class="btn btn-sm btn-outline-danger" data-encerrar="' + item.id + '">' +
+            '<i class="ti ti-circle-check me-1"></i>Encerrar conversa</button>';
       }).join('');
 
       caixa.querySelectorAll('[data-encerrar]').forEach(function (botao) {
@@ -146,8 +140,10 @@
             if (chat) { chat.innerHTML = '<div class="wae-vazio">' + escapar(resposta.mensagem) + '</div>'; }
             return;
          }
-         if (resposta.requerente && resposta.requerente.telefone) {
+         if (resposta.requerente && resposta.requerente.telefone && resposta.requerente.telefone !== telefoneRequerente) {
             telefoneRequerente = resposta.requerente.telefone;
+            var destino = document.getElementById('wae-aba-destino');
+            if (destino && destino.value === 'requerente') { montarDestinoExtra('requerente'); }
          }
          if (resposta.marca) { marca = resposta.marca; }
          desenharAtivas(resposta.conversas);
@@ -160,7 +156,9 @@
       if (!extra) { return; }
 
       if (tipo === 'requerente') {
-         extra.innerHTML = '<span class="wae-ajuda">' + (telefoneRequerente ? escapar(telefoneRequerente) : 'requerente sem celular cadastrado') + '</span>';
+         extra.innerHTML = telefoneRequerente
+            ? '<span class="text-secondary small"><i class="ti ti-phone me-1"></i>' + escapar(telefoneRequerente) + '</span>'
+            : '<span class="text-warning small"><i class="ti ti-alert-triangle me-1"></i>Requerente sem celular cadastrado</span>';
          return;
       }
 
