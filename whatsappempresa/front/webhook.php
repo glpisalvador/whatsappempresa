@@ -16,6 +16,13 @@ $corpo   = json_decode((string)file_get_contents('php://input'), true) ?: [];
 $token   = $_SERVER['HTTP_X_TOKEN_INTERNO'] ?? ($corpo['token'] ?? '');
 $oficial = (string)PluginWhatsappempresaConfig::get('token_interno');
 
+// Numero (conexao) que recebeu: sessoes, fluxos, respostas e registros ficam nele
+$conexaoWebhook = (int)($corpo['conexao'] ?? 1);
+if (PluginWhatsappempresaConexao::porId($conexaoWebhook) === null) {
+   $conexaoWebhook = PluginWhatsappempresaConexao::padrao();
+}
+PluginWhatsappempresaConexao::usar($conexaoWebhook);
+
 if ($oficial === '' || !hash_equals($oficial, (string)$token)) {
    PluginWhatsappempresaLog::registrar(
       'Chamada recusada no webhook',

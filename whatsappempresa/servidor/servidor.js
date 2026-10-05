@@ -28,6 +28,8 @@ const PASTA_MIDIA = process.env.WAE_MIDIA && process.env.WAE_MIDIA.trim() !== ''
    ? process.env.WAE_MIDIA
    : path.join(__dirname, 'midia');
 const PORTA   = parseInt(process.env.WAE_PORTA || '3456', 10);
+// Numero conectado (conexao) deste processo: o GLPI separa fluxos, sessoes e mensagens por ele
+const CONEXAO = parseInt(process.env.WAE_CONEXAO || '1', 10) || 1;
 const TOKEN   = process.env.WAE_TOKEN || '';
 const WEBHOOK = process.env.WAE_WEBHOOK || '';
 
@@ -471,7 +473,7 @@ async function consultarGlpi(telefone, texto, jid, tentativa = 1, midia = null, 
             'Content-Type': 'application/json',
             'X-Token-Interno': TOKEN
          },
-         body: JSON.stringify({ telefone, texto, jid, token: TOKEN, midia, wa_id: extra.wa_id || '', citada: extra.citada || null })
+         body: JSON.stringify({ conexao: CONEXAO, telefone, texto, jid, token: TOKEN, midia, wa_id: extra.wa_id || '', citada: extra.citada || null })
       });
 
       const bruto = await resposta.text();
@@ -537,7 +539,7 @@ async function confirmarEnvio(itens) {
             'Content-Type': 'application/json',
             'X-Token-Interno': TOKEN
          },
-         body: JSON.stringify({ confirmar: itens, token: TOKEN })
+         body: JSON.stringify({ conexao: CONEXAO, confirmar: itens, token: TOKEN })
       });
    } catch (e) {
       registrar('Falha ao confirmar a entrega no GLPI', e.message);
@@ -849,7 +851,7 @@ async function tratarRecebida(mensagem) {
             await fetch(WEBHOOK, {
                method: 'POST',
                headers: { 'Content-Type': 'application/json', 'X-Token-Interno': TOKEN },
-               body: JSON.stringify({ token: TOKEN, telefone: foneReacao, reacao: { wa_id: String(reacao.key?.id || ''), emoji: String(reacao.text || '') } })
+               body: JSON.stringify({ conexao: CONEXAO, token: TOKEN, telefone: foneReacao, reacao: { wa_id: String(reacao.key?.id || ''), emoji: String(reacao.text || '') } })
             });
          } catch (e) {
             registrar('Falha ao avisar a reacao ao GLPI', e.message);
@@ -1357,6 +1359,7 @@ const servidor = http.createServer(async (req, res) => {
    if (req.method === 'GET' && req.url === '/status') {
       res.writeHead(200);
       res.end(JSON.stringify({
+         conexao: CONEXAO,
          conectado,
          tem_auth: autenticacaoExiste(),
          tem_qr: !!ultimoQr,

@@ -23,6 +23,8 @@
    var raizUrl = (typeof CFG_GLPI !== 'undefined' && CFG_GLPI.root_doc) ? CFG_GLPI.root_doc : '';
    var URL_AJAX = raizUrl + '/plugins/whatsappempresa/front/ajax.php';
    var CHAVE_ULTIMO = 'wae-construtor-ultimo';
+   var CHAVE_CONEXAO = 'wae-construtor-conexao';
+   var conexao = 0;            // numero (conexao de WhatsApp) cujos fluxos estao na tela
 
    var CORES = {
       inicio: 'wae-g-inicio', interacao: 'wae-g-interacao', logica: 'wae-g-logica',
@@ -362,13 +364,13 @@
    }
 
    function carregarLista(abrir) {
-      return WAE.pedir('fluxos_listar').then(function (r) {
+      return WAE.pedir('fluxos_listar', { conexao: conexao }).then(function (r) {
          fluxos = r.itens || [];
          desenharSeletor();
 
          var alvo = abrir;
          if (!alvo) {
-            try { alvo = parseInt(localStorage.getItem(CHAVE_ULTIMO) || '0', 10); } catch (x) { alvo = 0; }
+            try { alvo = parseInt(localStorage.getItem(CHAVE_ULTIMO + '-' + conexao) || '0', 10); } catch (x) { alvo = 0; }
          }
          if (!fluxos.some(function (f) { return f.id === alvo; })) {
             alvo = fluxos.length ? fluxos[0].id : 0;
@@ -389,7 +391,7 @@
          if (!r.sucesso) { WAE.avisar(r.mensagem || 'Nao foi possivel abrir o fluxo.', true); return; }
          var f = r.fluxo;
          atual = { id: f.id, nome: f.nome, descricao: f.descricao, gatilho: f.gatilho, palavras: f.palavras, is_ativo: f.is_ativo };
-         try { localStorage.setItem(CHAVE_ULTIMO, String(f.id)); } catch (x) { /* navegador sem armazenamento */ }
+         try { localStorage.setItem(CHAVE_ULTIMO + '-' + conexao, String(f.id)); } catch (x) { /* navegador sem armazenamento */ }
 
          $id('wae-cons-ativo').checked = !!f.is_ativo;
          desenharSeletor();
@@ -398,6 +400,79 @@
          mostrarAvisos();
          status('Última alteração: ' + e(f.date_mod || '-'));
          reiniciarTeste();
+      });
+   }
+
+   // ============================================
+   // Numeros conectados: cada um tem os seus fluxos
+   // ============================================
+
+   function conexoes() { return (catalogo && catalogo.conexoes) || []; }
+
+   function nomeConexao(c) {
+      return c.nome + (c.numero ? ' (' + c.numero + ')' : '');
+   }
+
+   /** Seletor de numero e o menu "copiar para" */
+   function desenharConexoes() {
+      var lista = conexoes();
+      var seletor = $id('wae-cons-conexao');
+      var caixa = $id('wae-cons-conexao-caixa');
+      if (seletor) {
+         seletor.innerHTML = lista.map(function (c) {
+            return '<option value="' + c.id + '"' + (c.id === conexao ? ' selected' : '') + '>' + e(nomeConexao(c)) + (c.padrao ? ' ★' : '') + '</option>';
+         }).join('');
+         if (caixa) { caixa.classList.toggle('wae-oculto', lista.length < 2); }
+      }
+
+      var menu = $id('wae-cons-copiar-menu');
+      if (menu) {
+         var outros = lista.filter(function (c) { return c.id !== conexao; });
+         menu.innerHTML = '<a href="#" class="dropdown-item" data-destino="0"><i class="ti ti-copy me-2"></i>Duplicar neste número</a>' +
+            (outros.length ? '<div class="dropdown-divider"></div><h6 class="dropdown-header">Copiar para outro número</h6>' +
+               outros.map(function (c) {
+                  return '<a href="#" class="dropdown-item" data-destino="' + c.id + '"><i class="ti ti-device-mobile-share me-2"></i>' + e(nomeConexao(c)) + '</a>';
+               }).join('') : '');
+      }
+   }
+
+   function escolherConexao(id) {
+      var lista = conexoes();
+      var existe = lista.some(function (c) { return c.id === id; });
+      if (!existe) {
+         var padrao = lista.filter(function (c) { return c.padrao; })[0] || lista[0];
+         id = padrao ? padrao.id : 0;
+      }
+      conexao = id;
+      try { localStorage.setItem(CHAVE_CONEXAO, String(id)); } catch (x) { /* sem armazenamento */ }
+      desenharConexoes();
+   }
+
+   function ligarConexoes() {
+      var salvo = 0;
+      try { salvo = parseInt(localStorage.getItem(CHAVE_CONEXAO) || '0', 10); } catch (x) { salvo = 0; }
+      escolherConexao(salvo);
+
+      var seletor = $id('wae-cons-conexao');
+      if (seletor) {
+         seletor.addEventListener('change', function () {
+            var id = parseInt(this.value, 10);
+            salvarAgora().then(function () {
+               escolherConexao(id);
+               atual = null;
+               carregarLista();
+            });
+         });
+      }
+   }
+
+   /** Nomes dos fluxos (bloco Trocar de fluxo) e numeros atualizados */
+   function recarregarCatalogo() {
+      return WAE.pedir('fluxo_catalogo').then(function (r) {
+         if (!r.sucesso) { return; }
+         catalogo.fluxos = r.catalogo.fluxos;
+         catalogo.conexoes = r.catalogo.conexoes;
+         desenharConexoes();
       });
    }
 
@@ -513,7 +588,12 @@
       if (campo.opcoes) {
          return Object.keys(campo.opcoes).map(function (k) { return { id: k, nome: campo.opcoes[k] }; });
       }
-      return (catalogo[campo.fonte] || []).map(function (i) { return { id: i.id, nome: i.nome }; });
+      var lista = catalogo[campo.fonte] || [];
+      // Trocar de fluxo so leva a fluxos do mesmo numero
+      if (campo.fonte === 'fluxos') {
+         lista = lista.filter(function (i) { return !i.conexoes_id || i.conexoes_id === conexao; });
+      }
+      return lista.map(function (i) { return { id: i.id, nome: i.nome }; });
    }
 
    function campoHtml(campo, valor, dis) {
@@ -974,7 +1054,7 @@
    function rodarTeste() {
       if (!atual) { return; }
       salvarAgora().then(function () {
-         return WAE.pedir('fluxo_testar', { id: atual.id, entradas: JSON.stringify(teste) }, 'POST');
+         return WAE.pedir('fluxo_testar', { id: atual.id, conexao: conexao, entradas: JSON.stringify(teste) }, 'POST');
       }).then(function (r) {
          var chat = $id('wae-cons-teste-chat');
          if (!r.sucesso) {
@@ -1020,20 +1100,26 @@
       if ($id('wae-cons-novo')) {
          $id('wae-cons-novo').addEventListener('click', function () {
             salvarAgora().then(function () {
-               return WAE.pedir('fluxo_criar', { nome: 'Novo fluxo' }, 'POST');
+               return WAE.pedir('fluxo_criar', { nome: 'Novo fluxo', conexao: conexao }, 'POST');
             }).then(function (r) {
                WAE.avisar(r.mensagem || '', !r.sucesso);
-               if (r.sucesso) { carregarLista(r.id); }
+               if (r.sucesso) { recarregarCatalogo(); carregarLista(r.id); }
             });
          });
 
-         $id('wae-cons-duplicar').addEventListener('click', function () {
-            if (!atual) { return; }
+         // Duplicar no mesmo numero ou copiar para outro numero (a copia nasce inativa)
+         $id('wae-cons-copiar-menu').addEventListener('click', function (ev) {
+            var item = ev.target.closest('[data-destino]');
+            if (!item || !atual) { return; }
+            ev.preventDefault();
+            var destino = parseInt(item.getAttribute('data-destino'), 10) || 0;
             salvarAgora().then(function () {
-               return WAE.pedir('fluxo_duplicar', { id: atual.id }, 'POST');
+               return WAE.pedir('fluxo_duplicar', { id: atual.id, destino: destino }, 'POST');
             }).then(function (r) {
                WAE.avisar(r.mensagem || '', !r.sucesso);
-               if (r.sucesso) { carregarLista(r.id); }
+               if (!r.sucesso) { return; }
+               recarregarCatalogo();
+               if (destino && destino !== conexao) { carregarLista(); } else { carregarLista(r.id); }
             });
          });
 
@@ -1045,6 +1131,7 @@
                WAE.pedir('fluxo_remover', { id: atual.id }, 'POST').then(function (r) {
                   WAE.avisar(r.mensagem || '', !r.sucesso);
                   atual = null;
+                  recarregarCatalogo();
                   carregarLista();
                });
             });
@@ -1306,6 +1393,7 @@
             desenharPaleta();
             ligarPropriedades();
             ligarBarra();
+            ligarConexoes();
             carregarLista();
          });
       }

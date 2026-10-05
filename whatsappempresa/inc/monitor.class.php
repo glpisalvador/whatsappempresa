@@ -44,39 +44,34 @@ class PluginWhatsappempresaMonitor extends CommonDBTM {
    }
 
    static function cronMonitorar($tarefa = null): int {
-      // Segunda camada alem do vigia do crontab: religa se deveria estar ligado
-      if (PluginWhatsappempresaServidor::garantirLigado()) {
-         PluginWhatsappempresaLog::registrar(
-            'Servidor WhatsApp religado pela tarefa automatica',
-            'O processo nao estava em execucao e foi iniciado novamente.',
-            'aviso',
-            'monitor'
-         );
-         PluginWhatsappempresaServidor::aguardar(10, true);
-      }
+      // Segunda camada alem do vigia do crontab: confere cada numero conectado
+      foreach (PluginWhatsappempresaConexao::listar() as $conexao) {
+         $anterior = PluginWhatsappempresaConexao::usar((int)$conexao['id']);
+         $nome = (string)$conexao['nome'];
 
-      $ativo = PluginWhatsappempresaServidor::ativo();
-
-      if (!$ativo) {
-         // So e erro quando o servidor deveria estar ligado
-         if (PluginWhatsappempresaServidor::deveEstarLigado()) {
+         if (PluginWhatsappempresaServidor::garantirLigado()) {
             PluginWhatsappempresaLog::registrar(
-               'Servidor WhatsApp inacessivel',
-               'A tarefa automatica nao conseguiu falar com o servidor Node.',
-               'erro',
-               'monitor'
-            );
-         }
-      } else {
-         $status = PluginWhatsappempresaServidor::status();
-         if (empty($status['servico']['conectado'])) {
-            PluginWhatsappempresaLog::registrar(
-               'WhatsApp desconectado',
-               'O servidor esta ligado mas o aparelho nao esta conectado.',
+               'Servidor WhatsApp religado pela tarefa automatica',
+               'Conexao ' . $nome . ': o processo nao estava em execucao e foi iniciado novamente.',
                'aviso',
                'monitor'
             );
+            PluginWhatsappempresaServidor::aguardar(10, true);
          }
+
+         if (!PluginWhatsappempresaServidor::ativo()) {
+            // So e erro quando o servidor deveria estar ligado
+            if (PluginWhatsappempresaServidor::deveEstarLigado()) {
+               PluginWhatsappempresaLog::registrar('Servidor WhatsApp inacessivel', 'Conexao ' . $nome . ': a tarefa automatica nao conseguiu falar com o servidor Node.', 'erro', 'monitor');
+            }
+         } else {
+            $status = PluginWhatsappempresaServidor::status();
+            if (empty($status['servico']['conectado'])) {
+               PluginWhatsappempresaLog::registrar('WhatsApp desconectado', 'Conexao ' . $nome . ': o servidor esta ligado mas o aparelho nao esta conectado.', 'aviso', 'monitor');
+            }
+         }
+
+         PluginWhatsappempresaConexao::restaurar($anterior);
       }
 
       // Conversa parada segura o numero fora do autoatendimento

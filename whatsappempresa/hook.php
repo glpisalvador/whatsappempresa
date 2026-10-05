@@ -69,6 +69,24 @@ function plugin_whatsappempresa_migrar(): void {
    plugin_whatsappempresa_coluna($sessoes, 'contatos_id', "int unsigned NOT NULL DEFAULT 0");
    plugin_whatsappempresa_coluna($sessoes, 'codigos_id', "int unsigned NOT NULL DEFAULT 0");
 
+   // Varios numeros conectados: tudo que ja existia pertence a conexao 1
+   foreach ([$sessoes, $conversas, $mensagens, 'glpi_plugin_whatsappempresa_fluxos'] as $tabela) {
+      plugin_whatsappempresa_coluna($tabela, 'conexoes_id', "int unsigned NOT NULL DEFAULT 1");
+      plugin_whatsappempresa_indice($tabela, 'conexoes_id', 'conexoes_id');
+   }
+
+   // O mesmo telefone pode falar com numeros diferentes ao mesmo tempo: uma sessao por telefone e conexao
+   if ($DB->tableExists($sessoes)) {
+      $unica = $DB->doQuery("SHOW INDEX FROM `$sessoes` WHERE Key_name = 'telefone' AND Non_unique = 0");
+      if ($unica && $DB->numrows($unica) > 0) {
+         $DB->doQuery("ALTER TABLE `$sessoes` DROP INDEX `telefone`");
+      }
+      $nova = $DB->doQuery("SHOW INDEX FROM `$sessoes` WHERE Key_name = 'telefone_conexao'");
+      if ($nova && $DB->numrows($nova) === 0) {
+         $DB->doQuery("ALTER TABLE `$sessoes` ADD UNIQUE KEY `telefone_conexao` (`telefone`, `conexoes_id`)");
+      }
+   }
+
    // Abertura de chamados por cliente e por codigo: categoria e Unidade/Setor do plugin Botoes
    $clientes = 'glpi_plugin_whatsappempresa_clientes';
    plugin_whatsappempresa_coluna($clientes, 'itilcategories_id', "int unsigned NOT NULL DEFAULT 0");
@@ -184,7 +202,7 @@ function plugin_whatsappempresa_migrar(): void {
  * do GLPI so atende plugins ja carregados
  */
 function plugin_whatsappempresa_carregar_classes(): void {
-   foreach (['listatrait', 'config', 'log', 'servidor', 'construtor', 'cliente'] as $classe) {
+   foreach (['listatrait', 'config', 'log', 'conexao', 'servidor', 'construtor', 'cliente'] as $classe) {
       require_once(__DIR__ . '/inc/' . $classe . '.class.php');
    }
 }
@@ -335,6 +353,43 @@ function plugin_whatsappempresa_install(): bool {
          KEY `is_ativo` (`is_ativo`),
          KEY `ordem` (`ordem`)
       ) $charset");
+   }
+
+   // Conexoes: cada numero de WhatsApp pareado e um servidor independente com os seus fluxos
+   if (!$DB->tableExists('glpi_plugin_whatsappempresa_conexoes')) {
+      $DB->doQuery("CREATE TABLE `glpi_plugin_whatsappempresa_conexoes` (
+         `id` int unsigned NOT NULL AUTO_INCREMENT,
+         `nome` varchar(80) NOT NULL,
+         `porta` int unsigned NOT NULL DEFAULT 3456,
+         `numero` varchar(30) DEFAULT NULL,
+         `nome_aparelho` varchar(100) DEFAULT NULL,
+         `is_padrao` tinyint(1) NOT NULL DEFAULT 0,
+         `is_deleted` tinyint(1) NOT NULL DEFAULT 0,
+         `date_creation` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+         `date_mod` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+         PRIMARY KEY (`id`),
+         KEY `porta` (`porta`),
+         KEY `is_deleted` (`is_deleted`)
+      ) $charset");
+   }
+
+   // A instalacao que ja existia vira a conexao 1 (mesma porta, mesmo numero, mesmo pareamento)
+   if (countElementsInTable('glpi_plugin_whatsappempresa_conexoes') === 0) {
+      $porta  = 3456;
+      $numero = null;
+      if ($DB->tableExists('glpi_plugin_whatsappempresa_configs')) {
+         foreach ($DB->request(['FROM' => 'glpi_plugin_whatsappempresa_configs', 'WHERE' => ['chave' => ['node_porta', 'numero_host']]]) as $cfg) {
+            if ($cfg['chave'] === 'node_porta' && (int)$cfg['valor'] >= 1024) {
+               $porta = (int)$cfg['valor'];
+            }
+            if ($cfg['chave'] === 'numero_host' && trim((string)$cfg['valor']) !== '') {
+               $numero = trim((string)$cfg['valor']);
+            }
+         }
+      }
+      $DB->insert('glpi_plugin_whatsappempresa_conexoes', [
+         'id' => 1, 'nome' => 'Principal', 'porta' => $porta, 'numero' => $numero, 'is_padrao' => 1
+      ]);
    }
 
    // Clientes do autoatendimento: uma linha por entidade, com o requerente padrao

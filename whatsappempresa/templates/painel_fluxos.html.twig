@@ -3,13 +3,18 @@
 
    <div class="card-header wae-cons-barra">
       <div class="d-flex flex-wrap align-items-center gap-2 w-100">
+         <div class="d-flex align-items-center gap-2 wae-oculto" id="wae-cons-conexao-caixa">
+            <i class="ti ti-device-mobile fs-2 text-secondary"></i>
+            <select class="form-select form-select-sm wae-cons-seletor-conexao" id="wae-cons-conexao" title="Número de WhatsApp: cada número tem os seus fluxos"></select>
+         </div>
          <i class="ti ti-git-merge fs-2 text-secondary"></i>
          <select class="form-select form-select-sm wae-cons-seletor" id="wae-cons-fluxo" title="Fluxo em edição"></select>
 
          {% if canedit %}
          <div class="btn-group btn-group-sm">
             <button type="button" class="btn btn-outline-secondary" id="wae-cons-novo" title="Novo fluxo"><i class="ti ti-plus"></i><span class="d-none d-xl-inline ms-1">Novo</span></button>
-            <button type="button" class="btn btn-outline-secondary" id="wae-cons-duplicar" title="Duplicar fluxo"><i class="ti ti-copy"></i></button>
+            <button type="button" class="btn btn-outline-secondary dropdown-toggle" id="wae-cons-duplicar" data-bs-toggle="dropdown" title="Duplicar ou copiar para outro número"><i class="ti ti-copy"></i></button>
+            <div class="dropdown-menu" id="wae-cons-copiar-menu"></div>
             <button type="button" class="btn btn-outline-danger" id="wae-cons-excluir" title="Excluir fluxo"><i class="ti ti-trash"></i></button>
          </div>
          {% endif %}

@@ -438,7 +438,8 @@
             ? '<span class="badge bg-green-lt" title="' + origem + ' - numero vinculado a esta conversa"><i class="ti ti-lock me-1"></i>'
             : '<span class="badge bg-secondary-lt" title="' + origem + ' - numero livre"><i class="ti ti-unlink me-1"></i>';
 
-         return marca + escapar(item.contato) + numero + '</span>' +
+         var via = item.conexao ? '<span class="badge bg-blue-lt wae-conversa-conexao" title="Número de WhatsApp desta conversa"><i class="ti ti-device-mobile me-1"></i>' + escapar(item.conexao) + '</span>' : '';
+         return marca + escapar(item.contato) + numero + '</span>' + via +
             '<button type="button" class="btn btn-sm btn-outline-danger" data-encerrar="' + item.id + '">' +
             '<i class="ti ti-circle-check me-1"></i>Encerrar conversa</button>';
       }).join('');
@@ -475,9 +476,40 @@
             if (destino && destino.value === 'requerente') { montarDestinoExtra('requerente'); }
          }
          if (resposta.marca) { marca = resposta.marca; }
+         desenharEnviarPor(resposta.conexoes, resposta.conversas);
          desenharAtivas(resposta.conversas);
          desenharMensagens(resposta.mensagens);
       });
+   }
+
+   /**
+    * Seletor "Enviar pelo número": so aparece com mais de um número conectado.
+    * Padrao: o número da conversa aberta; sem conversa, o número padrao. A escolha do atendente e mantida.
+    */
+   function desenharEnviarPor(conexoes, conversas) {
+      var seletor = document.getElementById('wae-aba-enviar-por');
+      if (!seletor) { return; }
+      conexoes = conexoes || [];
+      seletor.classList.toggle('wae-oculto', conexoes.length < 2);
+      if (conexoes.length < 2) { seletor.innerHTML = ''; return; }
+
+      var chave = conexoes.map(function (c) { return c.id + ':' + c.rotulo; }).join('|');
+      if (seletor.getAttribute('data-chave') !== chave) {
+         seletor.innerHTML = conexoes.map(function (c) {
+            return '<option value="' + c.id + '">' + escapar('Enviar por: ' + c.rotulo) + '</option>';
+         }).join('');
+         seletor.setAttribute('data-chave', chave);
+      }
+      if (seletor.getAttribute('data-escolhido') === '1') { return; }
+
+      var aberta = (conversas || []).filter(function (item) { return item.status !== 'encerrada'; })[0];
+      var padrao = conexoes.filter(function (c) { return c.padrao; })[0] || conexoes[0];
+      seletor.value = String(aberta && aberta.conexoes_id ? aberta.conexoes_id : padrao.id);
+   }
+
+   function enviarPor() {
+      var seletor = document.getElementById('wae-aba-enviar-por');
+      return (seletor && !seletor.classList.contains('wae-oculto')) ? (parseInt(seletor.value, 10) || 0) : 0;
    }
 
    function montarDestinoExtra(tipo) {
@@ -571,6 +603,7 @@
          tipo: tipo,
          texto: legenda || '',
          citar_id: citarId || 0,
+         enviar_por: enviarPor(),
          arquivo: arquivo
       }, 'POST');
    }
@@ -636,7 +669,8 @@
          tickets_id: tickets_id,
          telefone: numero,
          texto: texto,
-         citar_id: citando ? citando.id : 0
+         citar_id: citando ? citando.id : 0,
+         enviar_por: enviarPor()
       }, 'POST').then(function (resposta) {
          travarEnvio(false);
          if (resposta.sucesso) {
@@ -775,6 +809,11 @@
    var botaoCancelar = document.getElementById('wae-aba-cancelar-gravacao');
    if (botaoCancelar) {
       botaoCancelar.addEventListener('click', function () { pararGravacao(true); });
+   }
+
+   var seletorEnviarPor = document.getElementById('wae-aba-enviar-por');
+   if (seletorEnviarPor) {
+      seletorEnviarPor.addEventListener('change', function () { seletorEnviarPor.setAttribute('data-escolhido', '1'); });
    }
 
    var seletor = document.getElementById('wae-aba-destino');

@@ -97,6 +97,8 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       echo '<option value="manual">Numero manual</option>';
       echo '</select>';
       echo '<div class="d-flex align-items-center" id="wae-aba-destino-extra"></div>';
+      // Com mais de um numero conectado: por qual deles a mensagem sai
+      echo '<select class="form-select form-select-sm w-auto wae-oculto" id="wae-aba-enviar-por" title="Enviar pelo numero"></select>';
       echo '<div class="d-flex flex-wrap align-items-center gap-2 ms-auto" id="wae-aba-ativas"></div>';
       echo '<button type="button" class="btn btn-sm btn-ghost-secondary" id="wae-aba-atualizar" title="Atualizar"><i class="ti ti-refresh"></i></button>';
       echo '</div>';
@@ -228,9 +230,12 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
          return null;
       }
 
+      // Com uma conexao em uso, so a conversa daquele numero; sem ela (avisos automaticos), de qualquer numero
+      $porConexao = PluginWhatsappempresaConexao::definida() ? ['conexoes_id' => PluginWhatsappempresaConexao::atual()] : [];
+
       foreach ($DB->request([
          'FROM'  => 'glpi_plugin_whatsappempresa_conversas',
-         'WHERE' => ['chave' => $chave, 'status' => 'aberta', 'is_deleted' => 0],
+         'WHERE' => ['chave' => $chave, 'status' => 'aberta', 'is_deleted' => 0] + $porConexao,
          'ORDER' => 'id DESC',
          'LIMIT' => 1
       ]) as $linha) {
@@ -240,7 +245,7 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       // Conversas gravadas antes da coluna de chave existir
       foreach ($DB->request([
          'FROM'  => 'glpi_plugin_whatsappempresa_conversas',
-         'WHERE' => ['telefone' => ['LIKE', '%' . $chave], 'status' => 'aberta', 'is_deleted' => 0],
+         'WHERE' => ['telefone' => ['LIKE', '%' . $chave], 'status' => 'aberta', 'is_deleted' => 0] + $porConexao,
          'ORDER' => 'id DESC',
          'LIMIT' => 1
       ]) as $linha) {
@@ -260,7 +265,8 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       $chave      = PluginWhatsappempresaConfig::chaveTelefone($numero);
       $tickets_id = (int)($dados['tickets_id'] ?? 0);
 
-      $where = ['chave' => $chave, 'is_deleted' => 0, 'status' => 'aberta'];
+      $conexao = PluginWhatsappempresaConexao::atual();
+      $where = ['chave' => $chave, 'is_deleted' => 0, 'status' => 'aberta', 'conexoes_id' => $conexao];
       if ($tickets_id > 0) {
          $where['tickets_id'] = $tickets_id;
       }
@@ -276,6 +282,7 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       }
 
       $DB->insert('glpi_plugin_whatsappempresa_conversas', [
+         'conexoes_id'  => $conexao,
          'telefone'     => $numero,
          'chave'        => $chave,
          'jid'          => $dados['jid'] ?? null,
@@ -421,7 +428,25 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
    /**
     * Envio feito pelo tecnico (aba do chamado ou modal global)
     */
-   static function enviarDoTecnico(string $telefone, string $texto, int $tickets_id = 0, string $nomeContato = '', ?array $midia = null, ?array $citar = null): array {
+   static function enviarDoTecnico(string $telefone, string $texto, int $tickets_id = 0, string $nomeContato = '', ?array $midia = null, ?array $citar = null, int $conexoes_id = 0): array {
+      global $DB;
+
+      // Numero que envia: o da mensagem citada, o escolhido na tela ou o da conversa aberta com o telefone
+      if ($citar !== null && (int)($citar['conexoes_id'] ?? 0) > 0) {
+         $conexoes_id = (int)$citar['conexoes_id'];
+      }
+      if ($conexoes_id <= 0 || PluginWhatsappempresaConexao::porId($conexoes_id) === null) {
+         $conexoes_id = PluginWhatsappempresaConexao::paraTelefone($telefone);
+      }
+      $conexaoAnterior = PluginWhatsappempresaConexao::usar($conexoes_id);
+      try {
+         return self::enviarDoTecnicoNaConexao($telefone, $texto, $tickets_id, $nomeContato, $midia, $citar) + ['conexoes_id' => $conexoes_id];
+      } finally {
+         PluginWhatsappempresaConexao::restaurar($conexaoAnterior);
+      }
+   }
+
+   private static function enviarDoTecnicoNaConexao(string $telefone, string $texto, int $tickets_id, string $nomeContato, ?array $midia, ?array $citar): array {
       global $DB;
 
       $numero      = PluginWhatsappempresaConfig::limparTelefone($telefone);
@@ -543,6 +568,9 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
          return ['ok' => false, 'erro' => 'Conversa nao encontrada', 'followup' => false];
       }
 
+      // Despedida e liberacao do numero acontecem no numero (conexao) da propria conversa
+      $conexaoAnterior = PluginWhatsappempresaConexao::usar((int)($conversa['conexoes_id'] ?? 1));
+
       $motivo    = (string)($opcoes['motivo'] ?? 'Encerrada pelo atendente');
       $origem    = (string)($opcoes['origem'] ?? 'tecnico');
       $despedida = !isset($opcoes['despedida']) || $opcoes['despedida'] !== false;
@@ -611,6 +639,8 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
             $autor
          );
       }
+
+      PluginWhatsappempresaConexao::restaurar($conexaoAnterior);
 
       return ['ok' => true, 'erro' => null, 'followup' => $followup, 'tickets_id' => $tickets_id];
    }

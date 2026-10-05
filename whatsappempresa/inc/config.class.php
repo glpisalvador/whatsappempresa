@@ -177,7 +177,8 @@ class PluginWhatsappempresaConfig extends CommonDBTM {
    }
 
    static function urlNode(): string {
-      return 'http://127.0.0.1:' . (int)self::get('node_porta', '3456');
+      // Cada numero conectado tem o seu processo, na sua porta
+      return 'http://127.0.0.1:' . PluginWhatsappempresaConexao::porta(PluginWhatsappempresaConexao::atual());
    }
 
    static function pastaServidor(): string {

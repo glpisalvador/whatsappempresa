@@ -87,10 +87,6 @@
     {{ fields.checkboxField('log_fluxos', cfg['log_fluxos'], 'Registrar trocas de fluxo') }}
 
     {{ fields.largeTitle('Conexão e registros', 'ti ti-plug-connected') }}
-    {{ fields.numberField('node_porta', cfg['node_porta'], 'Porta local do servidor', curto|merge({
-        'min': 1024, 'max': 65535,
-        'helper': 'O servidor escuta só em 127.0.0.1. Altere apenas se a porta 3456 já estiver em uso; o serviço reinicia sozinho ao salvar.'
-    })) }}
     {{ fields.textField('webhook_url', cfg['webhook_url'], 'URL do webhook', {
         'placeholder': webhook_padrao,
         'helper': 'Endereço pelo qual o servidor entrega ao GLPI as mensagens recebidas. Vazio: ' ~ webhook_padrao
