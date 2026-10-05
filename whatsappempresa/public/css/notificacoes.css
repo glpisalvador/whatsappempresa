@@ -1,0 +1,239 @@
+/* whatsappempresa - botao flutuante e painel de conversas */
+
+.waen-botao {
+   position: fixed !important;
+   right: 18px !important;
+   bottom: 18px !important;
+   z-index: 1035 !important;
+   display: inline-flex !important;
+   align-items: center !important;
+   gap: 8px !important;
+   width: auto !important;
+   background: #ffffff !important;
+   background-image: none !important;
+   border: 1px solid #dee2e6 !important;
+   border-radius: 24px !important;
+   padding: 8px 14px !important;
+   margin: 0 !important;
+   font-size: 12px !important;
+   line-height: 1.2 !important;
+   white-space: nowrap !important;
+   color: #495057 !important;
+   cursor: pointer;
+   opacity: 1 !important;
+   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+.waen-botao > * {
+   position: static !important;
+   float: none !important;
+   margin: 0 !important;
+}
+
+.waen-botao:hover {
+   background: #f8f9fa !important;
+}
+
+.waen-botao i {
+   font-size: 15px;
+   color: #198754;
+}
+
+.waen-contador {
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   min-width: 18px;
+   height: 18px;
+   padding: 0 5px;
+   font-size: 10px;
+   font-weight: 600;
+   border-radius: 9px;
+   background: rgba(220, 53, 69, 0.1);
+   border: 1px solid rgba(220, 53, 69, 0.3);
+   color: #842029;
+}
+
+.waen-painel {
+   position: fixed !important;
+   right: 18px;
+   bottom: 64px;
+   z-index: 1036;
+   width: 380px;
+   max-width: calc(100vw - 30px);
+   background: #ffffff;
+   border: 1px solid #dee2e6;
+   border-radius: 6px;
+   display: none;
+   overflow: hidden;
+}
+
+.waen-painel.waen-aberto {
+   display: block;
+}
+
+.waen-painel-topo {
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 18px;
+   background: #f8f9fa;
+   border-bottom: 1px solid #dee2e6;
+   padding: 10px 15px;
+}
+
+.waen-painel-titulo {
+   display: inline-flex;
+   align-items: center;
+   gap: 8px;
+   font-size: 13px;
+   font-weight: 600;
+   color: #495057;
+}
+
+.waen-fechar {
+   background: none;
+   border: none;
+   font-size: 14px;
+   color: #6c757d;
+   cursor: pointer;
+   line-height: 1;
+}
+
+.waen-lista {
+   max-height: 300px;
+   overflow-y: auto;
+}
+
+.waen-item {
+   display: flex;
+   align-items: flex-start;
+   gap: 8px;
+   padding: 8px 15px;
+   border-bottom: 1px solid #f0f0f0;
+   cursor: pointer;
+   font-size: 12px;
+   color: #333333;
+}
+
+.waen-item:hover {
+   background: #f8f9fa;
+}
+
+.waen-item.waen-nao-lida {
+   background: #e8f4fc;
+}
+
+.waen-item-dados {
+   flex: 1;
+   min-width: 0;
+}
+
+.waen-item-nome {
+   display: block;
+   font-weight: 600;
+   font-size: 12px;
+   color: #495057;
+}
+
+.waen-item-texto {
+   display: block;
+   color: #666666;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+}
+
+.waen-item-data {
+   font-size: 10px;
+   color: #999999;
+   white-space: nowrap;
+}
+
+.waen-conversa {
+   display: none;
+   border-top: 1px solid #dee2e6;
+}
+
+.waen-conversa.waen-aberto {
+   display: block;
+}
+
+.waen-mensagens {
+   height: 220px;
+   overflow-y: auto;
+   background: #f8f9fa;
+   padding: 10px 12px;
+}
+
+.waen-balao {
+   max-width: 80%;
+   margin-bottom: 8px;
+   padding: 6px 10px;
+   border-radius: 4px;
+   font-size: 12px;
+   background: #ffffff;
+   border: 1px solid #dee2e6;
+   white-space: pre-wrap;
+   word-break: break-word;
+}
+
+.waen-balao-saida {
+   margin-left: auto;
+   background: #e8f4fc;
+   border-color: #007bff33;
+}
+
+.waen-balao-meta {
+   display: block;
+   font-size: 10px;
+   color: #999999;
+   margin-top: 3px;
+}
+
+.waen-envio {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   padding: 8px 12px;
+   border-top: 1px solid #dee2e6;
+}
+
+.waen-envio input {
+   flex: 1;
+   font-size: 12px;
+   padding: 4px 8px;
+   border: 1px solid #dee2e6;
+   border-radius: 3px;
+   color: #333333;
+}
+
+.waen-envio button {
+   display: inline-flex !important;
+   align-items: center;
+   gap: 6px;
+   background: #e5a54b !important;
+   border: 1px solid #e5a54b !important;
+   color: #ffffff !important;
+   white-space: nowrap;
+   font-size: 11px;
+   padding: 3px 10px;
+   border-radius: 3px;
+   cursor: pointer;
+}
+
+.waen-vazio {
+   text-align: center;
+   font-size: 12px;
+   color: #999999;
+   padding: 16px 10px;
+}
+
+.waen-oculto {
+   display: none;
+}
+
+.waen-btn-encerrar {
+   background: #6c757d !important;
+   border-color: #6c757d !important;
+}

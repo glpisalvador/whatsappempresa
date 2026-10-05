@@ -1,0 +1,120 @@
+{#
+ # whatsappempresa - aba Fluxos: construtor de fluxos com arrastar e soltar
+ #}
+{% set dis = canedit ? '' : 'disabled' %}
+
+<div class="alert alert-info">
+    Cada fluxo e uma sequencia de passos. Arraste os passos da paleta para a lista, arraste dentro da lista para reordenar
+    e use o teste ao lado para conferir o comportamento antes de ativar.
+</div>
+
+<div class="row g-3 wae-fluxos-nativo">
+    <div class="col-xl-3">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title"><i class="ti ti-git-merge me-2"></i>Fluxos</h3>
+                <div class="card-actions"><span class="badge bg-secondary-lt" id="wae-badge-fluxos">-</span></div>
+            </div>
+            <div class="card-body">
+                {% if canedit %}
+                    <button type="button" class="btn btn-primary w-100 mb-3" id="wae-fluxo-novo"><i class="ti ti-plus me-1"></i>Novo fluxo</button>
+                {% endif %}
+                <div class="wae-lista-fluxos" id="wae-lista-fluxos"><span class="text-secondary">Carregando...</span></div>
+                <div class="form-hint mt-2">Arraste os fluxos para mudar a ordem no menu.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-5">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title"><i class="ti ti-notes me-2"></i>Fluxo selecionado</h3>
+                <div class="card-actions"><span class="badge bg-secondary-lt" id="wae-badge-editor">nenhum</span></div>
+            </div>
+            <div class="card-body">
+                <div class="wae-oculto" id="wae-editor">
+                    <div class="mb-3">
+                        <label class="form-label" for="wae-fluxo-nome">Nome</label>
+                        <input type="text" class="form-control" id="wae-fluxo-nome" maxlength="120" placeholder="Ex.: abrir chamado" {{ dis }}>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="wae-fluxo-descricao">Descricao</label>
+                        <input type="text" class="form-control" id="wae-fluxo-descricao" maxlength="250" {{ dis }}>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-5">
+                            <label class="form-label" for="wae-fluxo-gatilho">Modo de iniciar</label>
+                            <select class="form-select" id="wae-fluxo-gatilho" {{ dis }}></select>
+                        </div>
+                        <div class="col-md-7">
+                            <label class="form-label" for="wae-fluxo-palavras">Palavras</label>
+                            <input type="text" class="form-control" id="wae-fluxo-palavras" placeholder="separadas por virgula" {{ dis }}>
+                        </div>
+                    </div>
+                    <label class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="wae-fluxo-ativo" {{ dis }}>
+                        <span class="form-check-label">Fluxo ativo <span class="text-secondary">(fluxos inativos nao aparecem no WhatsApp)</span></span>
+                    </label>
+
+                    <div class="alert alert-warning wae-oculto" id="wae-fluxo-avisos"></div>
+
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold"><i class="ti ti-list me-1"></i>Passos do fluxo</span>
+                        <span class="text-secondary small" id="wae-passos-contador">0 passo(s)</span>
+                    </div>
+                    <div class="wae-lista-passos" id="wae-lista-passos"></div>
+
+                    {% if canedit %}
+                        <div class="card-footer mx-n3 mb-n3 mt-3 d-flex gap-2">
+                            <button type="button" class="btn btn-outline-danger" id="wae-fluxo-remover"><i class="ti ti-trash me-1"></i>Remover</button>
+                            <button type="button" class="btn btn-outline-secondary" id="wae-fluxo-duplicar"><i class="ti ti-copy me-1"></i>Duplicar</button>
+                            <button type="button" class="btn btn-primary ms-auto" id="wae-fluxo-salvar"><i class="ti ti-device-floppy me-1"></i>Salvar</button>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="empty" id="wae-editor-vazio">
+                    <div class="empty-icon"><i class="ti ti-git-merge"></i></div>
+                    <p class="empty-title">Nenhum fluxo selecionado</p>
+                    <p class="empty-subtitle text-secondary">Selecione um fluxo na lista ou crie um novo.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-4">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title"><i class="ti ti-puzzle me-2"></i>Adicionar passo</h3>
+            </div>
+            <div class="card-body">
+                <div class="wae-paleta" id="wae-paleta"><span class="text-secondary">Carregando...</span></div>
+                <div class="form-hint mt-2">Arraste para a lista de passos ou clique para incluir no fim.</div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <h3 class="card-title"><i class="ti ti-player-play me-2"></i>Testar o fluxo</h3>
+            </div>
+            <div class="card-body">
+                <p class="text-secondary small">O teste roda em modo seco: nada e gravado no GLPI e nada e enviado pelo WhatsApp.</p>
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="wae-teste-entrada" placeholder="Resposta do cliente">
+                    <button type="button" class="btn btn-outline-secondary" id="wae-teste-adicionar"><i class="ti ti-plus"></i></button>
+                </div>
+                <div class="d-flex gap-2 mb-2">
+                    <button type="button" class="btn btn-primary" id="wae-teste-rodar"><i class="ti ti-player-play me-1"></i>Rodar teste</button>
+                    <button type="button" class="btn btn-outline-secondary" id="wae-teste-limpar"><i class="ti ti-x me-1"></i>Limpar</button>
+                </div>
+                <div class="wae-teste-entradas" id="wae-teste-entradas"></div>
+                <div class="wae-roteiro" id="wae-roteiro"><span class="text-secondary">Rode o teste para ver a conversa simulada.</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    WAEPainel.definirEdicao({{ canedit ? 'true' : 'false' }});
+    WAEFluxos.iniciar();
+</script>

@@ -1,0 +1,73 @@
+{#
+ # whatsappempresa - aba Regras de atendimento
+ #}
+{% extends "pages/setup/general/base_form.html.twig" %}
+{% import 'components/form/fields_macros.html.twig' as fields %}
+
+{% set field_options = {'full_width': true} %}
+{% set curto = field_options|merge({'input_addclass': 'w-auto'}) %}
+
+{% block config_fields %}
+<input type="hidden" name="aba" value="regras">
+<div class="row ps-4">
+    {{ fields.largeTitle('Fluxos ativos', 'ti ti-git-merge', true) }}
+
+    {{ fields.checkboxField('fluxo_autoatendimento', cfg['fluxo_autoatendimento'], 'Autoatendimento (menu do cliente)', field_options) }}
+    {{ fields.checkboxField('fluxo_aprovacao', cfg['fluxo_aprovacao'], 'Aprovacao de validacoes pelo WhatsApp', field_options) }}
+    {{ fields.checkboxField('fluxo_conversa', cfg['fluxo_conversa'], 'Conversa entre tecnico e cliente', field_options|merge({
+        'helper': 'Exibe a aba WhatsApp nos chamados.'
+    })) }}
+    {{ fields.checkboxField('fluxo_construtor', cfg['fluxo_construtor'], 'Fluxos montados na aba Fluxos', field_options) }}
+    {{ fields.checkboxField('botoes_whatsapp', cfg['botoes_whatsapp'], 'Enviar botoes clicaveis', field_options|merge({
+        'helper': 'Contas comuns do WhatsApp costumam descartar mensagens com botoes sem avisar. Desligado, o menu vai como texto numerado, que sempre chega. Teste antes de ligar.'
+    })) }}
+
+    {{ fields.largeTitle('Opcoes do menu', 'ti ti-list-check') }}
+
+    {{ fields.checkboxField('menu_chamados', cfg['menu_chamados'], 'Meus chamados', field_options) }}
+    {{ fields.checkboxField('menu_validacoes', cfg['menu_validacoes'], 'Validacoes pendentes', field_options) }}
+    {{ fields.checkboxField('menu_abrir', cfg['menu_abrir'], 'Abrir chamado', field_options) }}
+    {{ fields.checkboxField('menu_falar_tecnico', cfg['menu_falar_tecnico'], 'Falar com o tecnico', field_options|merge({
+        'helper': 'Os fluxos montados com gatilho de menu tambem aparecem no menu automaticamente.'
+    })) }}
+
+    {{ fields.largeTitle('Acesso e sessao', 'ti ti-shield-lock') }}
+
+    {{ fields.checkboxField('exige_codigo', cfg['exige_codigo'], 'Exigir codigo de acesso', field_options|merge({
+        'helper': 'Os codigos ficam em WhatsApp > Codigos de acesso.'
+    })) }}
+    {{ fields.numberField('sessao_codigo_minutos', cfg['sessao_codigo_minutos'], 'Duracao da sessao apos o codigo (minutos)', curto|merge({'min': 0, 'helper': '0 desliga a expiracao.'})) }}
+    {{ fields.numberField('tentativas_max', cfg['tentativas_max'], 'Tentativas antes do bloqueio', curto|merge({'min': 1})) }}
+    {{ fields.numberField('bloqueio_minutos', cfg['bloqueio_minutos'], 'Minutos de bloqueio', curto|merge({'min': 0})) }}
+    {{ fields.numberField('sessao_minutos', cfg['sessao_minutos'], 'Minutos de inatividade da sessao', curto|merge({'min': 0})) }}
+
+    {{ fields.largeTitle('Abertura padrao de chamado', 'ti ti-ticket') }}
+
+    {{ fields.dropdownArrayField('abertura_tipo', cfg['abertura_tipo'], tipos, 'Tipo', field_options) }}
+    {{ fields.dropdownArrayField('abertura_urgencia', cfg['abertura_urgencia'], urgencias, 'Urgencia', field_options) }}
+    {{ fields.dropdownField('ITILCategory', 'abertura_categoria', cfg['abertura_categoria'], 'Categoria', field_options|merge({
+        'helper': 'Cada passo de abertura dos fluxos montados pode usar tipo, categoria, SLA e grupo proprios.'
+    })) }}
+
+    {{ fields.largeTitle('Avisos e saida', 'ti ti-bell') }}
+
+    {{ fields.checkboxField('notificar_tecnico', cfg['notificar_tecnico'], 'Avisar o tecnico quando o cliente escrever', field_options) }}
+    {{ fields.checkboxField('aviso_status', cfg['aviso_status'], 'Avisar o cliente quando o status do chamado mudar', field_options) }}
+    {{ fields.checkboxField('saida_silencia', cfg['saida_silencia'], 'Palavra de saida tambem silencia o numero', field_options|merge({
+        'helper': 'Desligado, a palavra de saida apenas finaliza o fluxo em andamento.'
+    })) }}
+
+    {{ fields.largeTitle('Conversa iniciada pelo tecnico', 'ti ti-messages') }}
+
+    {{ fields.checkboxField('conversa_tecnico_prende', cfg['conversa_tecnico_prende'], 'Respostas do cliente vao para a conversa, nao para o menu', field_options) }}
+    {{ fields.checkboxField('conversa_unica_por_numero', cfg['conversa_unica_por_numero'], 'Um numero conversa sobre um chamado por vez', field_options) }}
+    {{ fields.checkboxField('enviar_apresentacao', cfg['enviar_apresentacao'], 'Enviar apresentacao na primeira mensagem', field_options) }}
+    {{ fields.numberField('conversa_minutos', cfg['conversa_minutos'], 'Encerrar por inatividade apos (minutos)', curto|merge({'min': 0, 'helper': '0 desliga o encerramento automatico.'})) }}
+
+    {{ fields.largeTitle('Registro no chamado', 'ti ti-notes') }}
+
+    {{ fields.checkboxField('followup_encerramento', cfg['followup_encerramento'], 'Gravar a conversa como acompanhamento ao encerrar', field_options) }}
+    {{ fields.checkboxField('followup_privado', cfg['followup_privado'], 'Marcar esse acompanhamento como privado', field_options) }}
+    {{ fields.checkboxField('log_fluxos', cfg['log_fluxos'], 'Registrar as trocas de fluxo no historico', field_options) }}
+</div>
+{% endblock %}
