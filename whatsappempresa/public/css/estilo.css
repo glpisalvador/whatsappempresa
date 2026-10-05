@@ -1951,40 +1951,228 @@ td.wae-vazio {
    Aba Clientes
    ============================================ */
 
+.wae-clientes .wae-btn-salvar {
+   background: #e5a54b;
+   border-color: #e5a54b;
+   color: #fff;
+   font-weight: 600;
+}
+
+.wae-clientes .wae-btn-salvar:hover:not(:disabled) {
+   background: #d8953a;
+   border-color: #d8953a;
+   color: #fff;
+}
+
+.wae-clientes .wae-btn-salvar:disabled {
+   background: #f0f0f0;
+   border-color: #dee2e6;
+   color: #999;
+}
+
+/* Icone de ajuda: a explicacao aparece ao passar o mouse */
+.wae-clientes .wae-ajuda {
+   display: inline-flex;
+   align-items: center;
+   margin-left: 4px;
+   color: #999;
+   cursor: help;
+   font-size: 14px;
+   vertical-align: middle;
+}
+
+.wae-clientes .wae-ajuda:hover,
+.wae-clientes .wae-ajuda:focus {
+   color: #0d6efd;
+   outline: none;
+}
+
+.wae-clientes .form-label {
+   font-size: 12px;
+   font-weight: 600;
+   color: #495057;
+   display: flex;
+   align-items: center;
+}
+
+.wae-clientes .wae-cli-lista {
+   display: flex;
+   flex-direction: column;
+   gap: 10px;
+   padding: 12px;
+   background: #f8f9fa;
+}
+
+.wae-clientes .wae-cli-vazio {
+   text-align: center;
+   color: #999;
+   font-size: 12px;
+   padding: 10px;
+}
+
+/* Cartao de cada cliente */
+.wae-clientes .wae-cli-item {
+   background: #fff;
+   border: 1px solid #dee2e6;
+   border-left: 3px solid #198754;
+   border-radius: 6px;
+   overflow: visible;
+}
+
+.wae-clientes .wae-cli-item.wae-cli-inativo {
+   border-left-color: #999;
+}
+
+.wae-clientes .wae-cli-item.wae-cli-sujo {
+   border-left-color: #e5a54b;
+   box-shadow: 0 0 0 1px rgba(229, 165, 75, 0.35);
+}
+
 .wae-clientes .wae-cli-topo {
+   display: flex;
+   align-items: center;
+   gap: 12px;
+   padding: 10px 14px;
    cursor: pointer;
 }
 
-.wae-clientes .wae-cli-aberto {
+.wae-clientes .wae-cli-topo:hover {
    background: #fcfcfd;
 }
 
-.wae-clientes .wae-cli-titulo {
+.wae-clientes .wae-cli-avatar {
+   flex-shrink: 0;
+   width: 36px;
+   height: 36px;
+   border-radius: 50%;
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   font-size: 18px;
+   color: #198754;
+   background: rgba(25, 135, 84, 0.08);
+}
+
+.wae-clientes .wae-cli-inativo .wae-cli-avatar {
+   color: #999;
+   background: #f0f0f0;
+}
+
+.wae-clientes .wae-cli-info {
+   flex: 1;
+   min-width: 0;
+}
+
+.wae-clientes .wae-cli-nome {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   font-size: 14px;
+   font-weight: 600;
+   color: #333;
+}
+
+.wae-clientes .wae-cli-selo-inativo,
+.wae-clientes .wae-cli-selo-sujo {
+   display: none;
+   font-size: 10px;
+}
+
+.wae-clientes .wae-cli-inativo .wae-cli-selo-inativo,
+.wae-clientes .wae-cli-sujo .wae-cli-selo-sujo {
+   display: inline-flex;
+}
+
+.wae-clientes .wae-cli-resumo {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 4px 14px;
+   margin-top: 2px;
+   font-size: 11px;
+   color: #6c757d;
+}
+
+.wae-clientes .wae-cli-resumo i {
+   margin-right: 3px;
+}
+
+.wae-clientes .wae-cli-seta {
+   color: #999;
+   transition: transform 0.15s ease-in-out;
+}
+
+.wae-clientes .wae-cli-aberto .wae-cli-seta {
+   transform: rotate(180deg);
+}
+
+.wae-clientes .wae-cli-corpo {
+   display: none;
+   border-top: 1px solid #f0f0f0;
+}
+
+.wae-clientes .wae-cli-aberto .wae-cli-corpo {
+   display: block;
+}
+
+/* Secoes dentro do cliente */
+.wae-clientes .wae-cli-secao {
+   padding: 12px 16px;
+   border-bottom: 1px solid #f0f0f0;
+}
+
+.wae-clientes .wae-cli-secao-titulo {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+   margin-bottom: 10px;
    font-size: 13px;
    font-weight: 600;
    color: #495057;
-   margin-bottom: 8px;
 }
 
-.wae-clientes .table th {
+.wae-clientes .wae-cli-secao-titulo > i:first-child {
+   color: #6c757d;
+   font-size: 16px;
+}
+
+.wae-clientes .wae-cli-secao-titulo .form-check-label {
+   font-size: 12px;
+   font-weight: 400;
+}
+
+/* Unidade e Setor so aparecem com a opcao ligada */
+.wae-clientes .wae-cli-item:not(.wae-cli-com-botoes) .wae-so-botoes {
+   display: none;
+}
+
+.wae-clientes .wae-cli-tabela th {
    font-size: 11px;
    font-weight: 600;
    text-transform: uppercase;
    color: #6c757d;
+   background: #f8f9fa;
+   white-space: nowrap;
 }
 
-.wae-clientes .form-control.wae-salvo,
-.wae-clientes .form-select.wae-salvo {
-   border-color: #198754;
-   box-shadow: 0 0 0 2px rgba(25, 135, 84, 0.15);
-   transition: border-color 0.2s, box-shadow 0.2s;
+.wae-clientes .wae-cli-tabela td {
+   padding: 5px 6px;
 }
 
-.wae-clientes .wae-cli-novo-codigo {
-   max-width: 520px;
-}
-
-.wae-clientes .table select,
-.wae-clientes .table input[type="text"] {
+.wae-clientes .wae-cli-tabela select,
+.wae-clientes .wae-cli-tabela input[type="text"] {
    min-width: 120px;
+}
+
+/* Rodape com Descartar / Salvar */
+.wae-clientes .wae-cli-rodape {
+   display: flex;
+   align-items: center;
+   gap: 8px;
+   padding: 10px 16px;
+   background: #f8f9fa;
+   border-radius: 0 0 6px 6px;
+}
+
+.wae-clientes .wae-cli-cabecalho .input-icon {
+   min-width: 260px;
 }
