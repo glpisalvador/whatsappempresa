@@ -983,15 +983,56 @@ class PluginWhatsappempresaFluxo {
    /**
     * Marca o numero como identificado pelo tempo configurado
     */
-   static function liberarAcesso(string $telefone, int $users_id, array $contexto = []): void {
+   static function liberarAcesso(string $telefone, int $users_id, array $contexto = [], int $entities_id = 0, int $contatos_id = 0): void {
       $minutos = self::minutosDaSessao();
 
+      // Entidade do cliente e contato ficam em colunas proprias: o contexto e limpo a cada etapa
       self::definirEtapa($telefone, 'menu', $contexto, [
          'autenticado'     => 1,
          'autenticado_ate' => $minutos > 0 ? date('Y-m-d H:i:s', time() + ($minutos * 60)) : null,
          'users_id'        => $users_id,
-         'tentativas'      => 0
+         'tentativas'      => 0,
+         'entities_id'     => $entities_id,
+         'contatos_id'     => $contatos_id
       ]);
+   }
+
+   /**
+    * Libera o numero identificado (usuario do GLPI ou contato de cliente)
+    */
+   static function liberarIdentificado(string $telefone, array $identificado, array $contexto = []): void {
+      self::liberarAcesso(
+         $telefone,
+         (int)$identificado['users_id'],
+         $contexto,
+         (int)$identificado['entities_id'],
+         (int)$identificado['contatos_id']
+      );
+   }
+
+   /**
+    * Resposta quando o numero nao foi identificado por falta de requerente no cliente
+    */
+   static function textoCadastroIncompleto(): string {
+      return "Seu cadastro de cliente ainda nao esta completo para o atendimento automatico.\n"
+         . 'Por favor, fale com o suporte.';
+   }
+
+   /**
+    * Garante a entidade do cliente entre as entidades ativas da sessao assumida,
+    * para o GLPI aceitar criar o registro nela
+    */
+   static function incluirEntidadeNaSessao(int $entities_id): void {
+      if ($entities_id <= 0 || empty($_SESSION['wae_sessao_assumida'])) {
+         return;
+      }
+
+      $ativas = (array)($_SESSION['glpiactiveentities'] ?? []);
+      if (!in_array($entities_id, array_map('intval', $ativas), true)) {
+         $ativas[] = $entities_id;
+         $_SESSION['glpiactiveentities']        = array_values(array_unique(array_map('intval', $ativas)));
+         $_SESSION['glpiactiveentities_string'] = implode(',', $_SESSION['glpiactiveentities']);
+      }
    }
 
    // ============================================
@@ -1368,13 +1409,16 @@ class PluginWhatsappempresaFluxo {
          return [self::textoSaudacao()];
       }
 
-      $users_id = PluginWhatsappempresaConfig::usuarioPorTelefone($telefone);
-      if ($users_id <= 0) {
+      $identificado = PluginWhatsappempresaCliente::identificar($telefone);
+      if ($identificado['motivo'] === 'sem_requerente') {
+         return [self::textoCadastroIncompleto()];
+      }
+      if ((int)$identificado['users_id'] <= 0) {
          return self::pedirTelefone($telefone, []);
       }
 
-      self::liberarAcesso($telefone, $users_id);
-      return [self::montarMenu($telefone, $users_id)];
+      self::liberarIdentificado($telefone, $identificado);
+      return [self::montarMenu($telefone, (int)$identificado['users_id'])];
    }
 
    /**
@@ -1398,7 +1442,13 @@ class PluginWhatsappempresaFluxo {
          return ['Numero invalido. Envie apenas os digitos com DDD, por exemplo 71999998888.'];
       }
 
-      $users_id = PluginWhatsappempresaConfig::usuarioPorTelefone($informado);
+      $identificado = PluginWhatsappempresaCliente::identificar($informado, (int)($sessao['dados']['entities_id'] ?? 0));
+      $users_id = (int)$identificado['users_id'];
+
+      if ($identificado['motivo'] === 'sem_requerente') {
+         self::gravarSessao($telefone, ['tentativas' => 0, 'etapa' => 'inicio', 'autenticado' => 0]);
+         return [self::textoCadastroIncompleto()];
+      }
 
       if ($users_id <= 0) {
          $tentativas = (int)$sessao['tentativas'] + 1;
@@ -1416,18 +1466,24 @@ class PluginWhatsappempresaFluxo {
       $contexto = $sessao['dados'];
       $contexto['telefone_informado'] = $informado;
 
-      self::liberarAcesso($telefone, $users_id, $contexto);
+      // Codigo ja aceito define o cliente; senao vale o do contato encontrado
+      if ((int)($contexto['entities_id'] ?? 0) > 0 && (int)$identificado['contatos_id'] === 0) {
+         $identificado['entities_id'] = (int)$contexto['entities_id'];
+      }
+
+      self::liberarIdentificado($telefone, $identificado, $contexto);
 
       PluginWhatsappempresaLog::registrar(
          'Cadastro confirmado pelo telefone informado',
-         'Conversa ' . $telefone . ' vinculada a ' . PluginWhatsappempresaConfig::nomeUsuario($users_id),
+         'Conversa ' . $telefone . ' vinculada a ' . $identificado['nome']
+         . ((int)$identificado['contatos_id'] > 0 ? ' (contato de ' . PluginWhatsappempresaCliente::nomeEntidade((int)$identificado['entities_id']) . ')' : ''),
          'info',
          'autoatendimento',
          $users_id
       );
 
       return [
-         'Cadastro localizado, ' . PluginWhatsappempresaConfig::nomeUsuario($users_id) . '.',
+         'Cadastro localizado, ' . $identificado['nome'] . '.',
          self::montarMenu($telefone, $users_id)
       ];
    }
@@ -1462,26 +1518,37 @@ class PluginWhatsappempresaFluxo {
          return [PluginWhatsappempresaConfig::get('msg_codigo_invalido') . "\nTentativa {$tentativas} de {$maximo}."];
       }
 
-      $users_id = PluginWhatsappempresaConfig::usuarioPorTelefone($telefone);
-      if ($users_id <= 0) {
-         self::gravarSessao($telefone, ['tentativas' => 0]);
-         return self::pedirTelefone($telefone, ['entities_id' => (int)$codigo['entities_id']]);
+      $entidadeCodigo = (int)$codigo['entities_id'];
+      $identificado   = PluginWhatsappempresaCliente::identificar($telefone, $entidadeCodigo);
+      $users_id       = (int)$identificado['users_id'];
+
+      if ($identificado['motivo'] === 'sem_requerente') {
+         self::gravarSessao($telefone, ['tentativas' => 0, 'etapa' => 'inicio', 'autenticado' => 0]);
+         return [self::textoCadastroIncompleto()];
       }
 
-      self::liberarAcesso($telefone, $users_id, ['entities_id' => (int)$codigo['entities_id']]);
+      if ($users_id <= 0) {
+         self::gravarSessao($telefone, ['tentativas' => 0]);
+         return self::pedirTelefone($telefone, ['entities_id' => $entidadeCodigo]);
+      }
+
+      // O codigo define o cliente atendido, mesmo para usuarios do GLPI
+      $identificado['entities_id'] = $entidadeCodigo;
+      self::liberarIdentificado($telefone, $identificado, ['entities_id' => $entidadeCodigo]);
 
       $minutos = self::minutosDaSessao();
 
       PluginWhatsappempresaLog::registrar(
          'Acesso liberado no autoatendimento',
-         'Telefone ' . $telefone . ' - ' . PluginWhatsappempresaConfig::nomeUsuario($users_id)
+         'Telefone ' . $telefone . ' - ' . $identificado['nome']
+         . ' - cliente ' . PluginWhatsappempresaCliente::nomeEntidade($entidadeCodigo)
          . ($minutos > 0 ? ' - sessao valida por ' . $minutos . ' minuto(s)' : ''),
          'info',
          'autoatendimento',
          $users_id
       );
 
-      $abertura = 'Acesso liberado, ' . PluginWhatsappempresaConfig::nomeUsuario($users_id) . '.';
+      $abertura = 'Acesso liberado, ' . $identificado['nome'] . '.';
       if ($minutos > 0) {
          $abertura .= "\nSua sessao fica ativa por " . $minutos . ' minuto(s).';
       }
@@ -1953,19 +2020,25 @@ class PluginWhatsappempresaFluxo {
 
       $titulo = (string)($dados['titulo'] ?? 'Solicitacao via WhatsApp');
 
-      $entities_id = 0;
-      foreach ($DB->request([
-         'SELECT' => ['entities_id'],
-         'FROM'   => 'glpi_users',
-         'WHERE'  => ['id' => $users_id],
-         'LIMIT'  => 1
-      ]) as $linha) {
-         $entities_id = (int)$linha['entities_id'];
+      // Cliente identificado pelo codigo/contato: o chamado nasce na entidade dele
+      $identidade  = PluginWhatsappempresaCliente::identidadeDaSessao($telefone);
+      $entities_id = (int)$identidade['entities_id'];
+
+      if ($entities_id <= 0) {
+         foreach ($DB->request([
+            'SELECT' => ['entities_id'],
+            'FROM'   => 'glpi_users',
+            'WHERE'  => ['id' => $users_id],
+            'LIMIT'  => 1
+         ]) as $linha) {
+            $entities_id = (int)$linha['entities_id'];
+         }
       }
 
       self::assumirUsuario($users_id);
+      self::incluirEntidadeNaSessao($entities_id);
 
-      $conteudo = $texto . "\n\nAberto pelo WhatsApp - telefone " . $telefone;
+      $conteudo = $texto . "\n\n" . PluginWhatsappempresaCliente::assinatura($telefone, $identidade);
 
       $ticket = new Ticket();
       $tickets_id = $ticket->add([

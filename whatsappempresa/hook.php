@@ -64,6 +64,9 @@ function plugin_whatsappempresa_migrar(): void {
    plugin_whatsappempresa_coluna($sessoes, 'autenticado_ate', "timestamp NULL DEFAULT NULL");
    plugin_whatsappempresa_coluna($sessoes, 'fluxos_id', "int unsigned NOT NULL DEFAULT 0");
    plugin_whatsappempresa_coluna($sessoes, 'passo', "varchar(40) DEFAULT NULL");
+   // Cliente (entidade) e contato identificados: sobrevivem as trocas de etapa
+   plugin_whatsappempresa_coluna($sessoes, 'entities_id', "int unsigned NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($sessoes, 'contatos_id', "int unsigned NOT NULL DEFAULT 0");
    plugin_whatsappempresa_alargar($sessoes, 'fluxo', "varchar(30) NOT NULL DEFAULT 'menu'");
    plugin_whatsappempresa_alargar($sessoes, 'etapa', "varchar(60) NOT NULL DEFAULT 'inicio'");
    plugin_whatsappempresa_indice($sessoes, 'jid', 'jid');
@@ -160,7 +163,7 @@ function plugin_whatsappempresa_migrar(): void {
  * do GLPI so atende plugins ja carregados
  */
 function plugin_whatsappempresa_carregar_classes(): void {
-   foreach (['listatrait', 'config', 'log', 'servidor', 'construtor'] as $classe) {
+   foreach (['listatrait', 'config', 'log', 'servidor', 'construtor', 'cliente'] as $classe) {
       require_once(__DIR__ . '/inc/' . $classe . '.class.php');
    }
 }
@@ -310,6 +313,38 @@ function plugin_whatsappempresa_install(): bool {
          KEY `gatilho` (`gatilho`),
          KEY `is_ativo` (`is_ativo`),
          KEY `ordem` (`ordem`)
+      ) $charset");
+   }
+
+   // Clientes do autoatendimento: uma linha por entidade, com o requerente padrao
+   if (!$DB->tableExists('glpi_plugin_whatsappempresa_clientes')) {
+      $DB->doQuery("CREATE TABLE `glpi_plugin_whatsappempresa_clientes` (
+         `id` int unsigned NOT NULL AUTO_INCREMENT,
+         `entities_id` int unsigned NOT NULL DEFAULT 0,
+         `users_id_requerente` int unsigned NOT NULL DEFAULT 0,
+         `is_ativo` tinyint(1) NOT NULL DEFAULT 1,
+         `observacao` varchar(255) DEFAULT NULL,
+         `date_creation` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+         `date_mod` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+         PRIMARY KEY (`id`),
+         UNIQUE KEY `entities_id` (`entities_id`)
+      ) $charset");
+   }
+
+   // Contatos de cada cliente: atendidos pelo telefone mesmo sem usuario no GLPI
+   if (!$DB->tableExists('glpi_plugin_whatsappempresa_contatos')) {
+      $DB->doQuery("CREATE TABLE `glpi_plugin_whatsappempresa_contatos` (
+         `id` int unsigned NOT NULL AUTO_INCREMENT,
+         `entities_id` int unsigned NOT NULL DEFAULT 0,
+         `nome` varchar(100) NOT NULL,
+         `telefone` varchar(20) NOT NULL,
+         `chave` varchar(8) NOT NULL,
+         `is_ativo` tinyint(1) NOT NULL DEFAULT 1,
+         `date_creation` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+         `date_mod` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+         PRIMARY KEY (`id`),
+         KEY `entities_id` (`entities_id`),
+         KEY `chave` (`chave`)
       ) $charset");
    }
 

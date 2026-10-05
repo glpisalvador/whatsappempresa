@@ -307,6 +307,11 @@ class PluginWhatsappempresaConfig extends CommonDBTM {
 
       foreach ($iterator as $linha) {
          if (strcasecmp(trim((string)$linha['codigo']), $codigo) === 0) {
+            // Cliente desativado na aba Clientes: o codigo deixa de valer
+            if (class_exists('PluginWhatsappempresaCliente')
+                && !PluginWhatsappempresaCliente::clienteAtivo((int)$linha['entities_id'])) {
+               return [];
+            }
             return $linha;
          }
       }

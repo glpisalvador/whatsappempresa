@@ -626,7 +626,7 @@ switch ($acao) {
       wae_responder(['sucesso' => true, 'mensagem' => 'Numero devolvido ao atendimento automatico.']);
 
    // ============================================
-   // Fluxos montados no painel
+   // Fluxos montados no painel (editor visual)
    // ============================================
 
    case 'fluxos_listar':
@@ -634,17 +634,12 @@ switch ($acao) {
       $itens = [];
       foreach (PluginWhatsappempresaConstrutor::listar() as $fluxo) {
          $itens[] = [
-            'id'        => (int)$fluxo['id'],
-            'nome'      => (string)$fluxo['nome'],
-            'descricao' => (string)$fluxo['descricao'],
-            'gatilho'   => (string)$fluxo['gatilho'],
-            'palavras'  => (string)$fluxo['palavras'],
-            'is_ativo'  => (int)$fluxo['is_ativo'],
-            'is_padrao' => (int)$fluxo['is_padrao'],
-            'ordem'     => (int)$fluxo['ordem'],
-            'passos'    => count($fluxo['passos']),
-            'avisos'    => count(PluginWhatsappempresaConstrutor::validar($fluxo)),
-            'date_mod'  => Html::convDateTime($fluxo['date_mod'])
+            'id'       => (int)$fluxo['id'],
+            'nome'     => (string)$fluxo['nome'],
+            'gatilho'  => (string)$fluxo['gatilho'],
+            'is_ativo' => (int)$fluxo['is_ativo'],
+            'blocos'   => count($fluxo['passos']),
+            'avisos'   => count(PluginWhatsappempresaConstrutor::validar($fluxo))
          ];
       }
       wae_responder(['sucesso' => true, 'itens' => $itens]);
@@ -664,50 +659,59 @@ switch ($acao) {
             'gatilho'   => (string)$fluxo['gatilho'],
             'palavras'  => (string)$fluxo['palavras'],
             'is_ativo'  => (int)$fluxo['is_ativo'],
-            'ordem'     => (int)$fluxo['ordem'],
-            'passos'    => $fluxo['passos']
+            'nos'       => $fluxo['nos'],
+            'arestas'   => $fluxo['arestas'],
+            'date_mod'  => Html::convDateTime($fluxo['date_mod'])
          ],
          'avisos' => PluginWhatsappempresaConstrutor::validar($fluxo)
       ]);
 
-   case 'fluxo_salvar':
+   case 'fluxo_criar':
       wae_exigir_admin_escrita();
-      $bruto  = (string)($_POST['dados'] ?? '');
-      $entrada = json_decode($bruto, true);
+      $nome = trim((string)($_POST['nome'] ?? '')) ?: 'Novo fluxo';
+      $id = PluginWhatsappempresaConstrutor::salvar([
+         'nome'     => $nome,
+         'gatilho'  => 'menu',
+         'is_ativo' => 0,
+         'nos'      => [],
+         'arestas'  => []
+      ]);
+      if ($id <= 0) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Nao foi possivel criar o fluxo.']);
+      }
+      PluginWhatsappempresaLog::registrar('Fluxo do WhatsApp criado', 'Fluxo #' . $id . ' "' . $nome . '" por ' . wae_usuario(), 'info', 'construtor', (int)Session::getLoginUserID());
+      wae_responder(['sucesso' => true, 'mensagem' => 'Fluxo criado (inativo ate voce ativar).', 'id' => $id]);
 
-      if (!is_array($entrada)) {
+   case 'fluxo_salvar':
+      // Salvamento automatico do editor: vale na proxima mensagem que o servidor receber
+      wae_exigir_admin_escrita();
+      $entrada = json_decode((string)($_POST['dados'] ?? ''), true);
+
+      if (!is_array($entrada) || (int)($entrada['id'] ?? 0) <= 0) {
          wae_responder(['sucesso' => false, 'mensagem' => 'Nao foi possivel ler o fluxo enviado.']);
+      }
+      if (PluginWhatsappempresaConstrutor::porId((int)$entrada['id']) === null) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Este fluxo foi removido.']);
       }
       if (trim((string)($entrada['nome'] ?? '')) === '') {
          wae_responder(['sucesso' => false, 'mensagem' => 'Informe o nome do fluxo.']);
       }
 
       $id = PluginWhatsappempresaConstrutor::salvar($entrada);
-
-      if ($id <= 0) {
-         wae_responder(['sucesso' => false, 'mensagem' => 'Nao foi possivel gravar o fluxo.']);
-      }
-
-      PluginWhatsappempresaLog::registrar(
-         'Fluxo do WhatsApp salvo',
-         'Fluxo #' . $id . ' por ' . PluginWhatsappempresaConfig::nomeUsuario((int)Session::getLoginUserID()),
-         'info',
-         'construtor',
-         (int)Session::getLoginUserID()
-      );
-
       $gravado = PluginWhatsappempresaConstrutor::porId($id);
 
       wae_responder([
-         'sucesso'  => true,
-         'mensagem' => 'Fluxo salvo.',
-         'id'       => $id,
-         'avisos'   => $gravado !== null ? PluginWhatsappempresaConstrutor::validar($gravado) : []
+         'sucesso' => $gravado !== null,
+         'id'      => $id,
+         'avisos'  => $gravado !== null ? PluginWhatsappempresaConstrutor::validar($gravado) : [],
+         'hora'    => date('H:i:s')
       ]);
 
    case 'fluxo_remover':
       wae_exigir_admin_escrita();
-      PluginWhatsappempresaConstrutor::remover((int)($_POST['id'] ?? 0));
+      $id = (int)($_POST['id'] ?? 0);
+      PluginWhatsappempresaConstrutor::remover($id);
+      PluginWhatsappempresaLog::registrar('Fluxo do WhatsApp removido', 'Fluxo #' . $id . ' por ' . wae_usuario(), 'info', 'construtor', (int)Session::getLoginUserID());
       wae_responder(['sucesso' => true, 'mensagem' => 'Fluxo removido.']);
 
    case 'fluxo_duplicar':
@@ -731,6 +735,39 @@ switch ($acao) {
       wae_exigir_admin();
       wae_responder(['sucesso' => true, 'catalogo' => PluginWhatsappempresaConstrutor::catalogo()]);
 
+   case 'fluxo_midia':
+      // Imagem ou audio anexado a um bloco Conteudo
+      wae_exigir_admin_escrita();
+      if (empty($_FILES['arquivo'])) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Nenhum arquivo recebido.']);
+      }
+      $tipo  = (string)($_POST['tipo'] ?? '') === 'audio' ? 'audio' : 'imagem';
+      $midia = PluginWhatsappempresaConversa::salvarUpload($_FILES['arquivo'], $tipo);
+      if (is_string($midia)) {
+         wae_responder(['sucesso' => false, 'mensagem' => $midia]);
+      }
+      wae_responder([
+         'sucesso' => true,
+         'midia'   => $midia + ['nome' => mb_substr(basename((string)($_FILES['arquivo']['name'] ?? '')), 0, 80)]
+      ]);
+
+   case 'fluxo_midia_ver':
+      // Previa da midia de um bloco no editor
+      wae_exigir_admin();
+      $caminho = PluginWhatsappempresaServidor::caminhoMidia((string)($_GET['arquivo'] ?? ''));
+      if ($caminho === null) {
+         http_response_code(404);
+         header('Content-Type: text/plain; charset=utf-8');
+         echo 'Arquivo nao encontrado.';
+         exit;
+      }
+      header('Content-Type: ' . (new finfo(FILEINFO_MIME_TYPE))->file($caminho));
+      header('Content-Length: ' . filesize($caminho));
+      header('Cache-Control: private, max-age=86400');
+      header('X-Content-Type-Options: nosniff');
+      readfile($caminho);
+      exit;
+
    case 'fluxo_testar':
       wae_exigir_admin();
       $entradas = json_decode((string)($_POST['entradas'] ?? '[]'), true);
@@ -743,6 +780,119 @@ switch ($acao) {
          (int)Session::getLoginUserID()
       );
       wae_responder(['sucesso' => !empty($resultado['ok'])] + $resultado);
+
+   // ============================================
+   // Clientes, codigos e contatos do autoatendimento
+   // ============================================
+
+   case 'clientes_listar':
+      wae_exigir_admin();
+      wae_responder(['sucesso' => true, 'itens' => PluginWhatsappempresaCliente::listar()]);
+
+   case 'cliente_adicionar':
+      wae_exigir_admin_escrita();
+      $entities_id = (int)($_POST['entities_id'] ?? -1);
+      $entidade = new Entity();
+      if ($entities_id < 0 || !$entidade->getFromDB($entities_id)) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Escolha a entidade do cliente.']);
+      }
+      if (PluginWhatsappempresaCliente::porEntidade($entities_id) !== null) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Esta entidade ja esta cadastrada como cliente.']);
+      }
+      PluginWhatsappempresaCliente::salvar($entities_id, [
+         'users_id_requerente' => (int)($_POST['users_id_requerente'] ?? 0),
+         'is_ativo'            => 1
+      ]);
+      // Todo cliente novo ja nasce com um codigo pronto para usar
+      PluginWhatsappempresaCliente::salvarCodigo($entities_id, ['codigo' => PluginWhatsappempresaCliente::sugerirCodigo()]);
+      PluginWhatsappempresaLog::registrar('Cliente do autoatendimento cadastrado', PluginWhatsappempresaCliente::nomeEntidade($entities_id) . ' por ' . wae_usuario(), 'info', 'autoatendimento', (int)Session::getLoginUserID());
+      wae_responder(['sucesso' => true, 'mensagem' => 'Cliente cadastrado com um codigo gerado automaticamente.', 'entities_id' => $entities_id]);
+
+   case 'cliente_salvar':
+      wae_exigir_admin_escrita();
+      $entities_id = (int)($_POST['entities_id'] ?? -1);
+      if (PluginWhatsappempresaCliente::porEntidade($entities_id) === null) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Cliente nao encontrado.']);
+      }
+      $campos = [];
+      foreach (['users_id_requerente', 'is_ativo', 'observacao'] as $campo) {
+         if (isset($_POST[$campo])) {
+            $campos[$campo] = $_POST[$campo];
+         }
+      }
+      wae_responder(['sucesso' => PluginWhatsappempresaCliente::salvar($entities_id, $campos)]);
+
+   case 'cliente_remover':
+      wae_exigir_admin_escrita();
+      $entities_id = (int)($_POST['entities_id'] ?? -1);
+      PluginWhatsappempresaCliente::remover($entities_id);
+      PluginWhatsappempresaLog::registrar('Cliente do autoatendimento removido', PluginWhatsappempresaCliente::nomeEntidade($entities_id) . ' por ' . wae_usuario(), 'info', 'autoatendimento', (int)Session::getLoginUserID());
+      wae_responder(['sucesso' => true, 'mensagem' => 'Cliente removido e codigos desativados.']);
+
+   case 'cliente_requerente':
+      // Campo nativo de usuario do GLPI (select2) para o requerente padrao do cliente
+      wae_exigir_admin();
+      $entities_id = (int)($_GET['entities_id'] ?? 0);
+      $atual = PluginWhatsappempresaCliente::requerentePadrao($entities_id);
+      $html = User::dropdown([
+         'name'    => 'users_id_requerente',
+         'value'   => $atual,
+         'right'   => 'all',
+         'entity'  => $entities_id,
+         'entity_sons' => true,
+         'display' => false,
+         'width'   => '100%',
+         'rand'    => mt_rand()
+      ]);
+      wae_responder(['sucesso' => true, 'html' => $html]);
+
+   case 'codigo_salvar':
+      wae_exigir_admin_escrita();
+      $entities_id = (int)($_POST['entities_id'] ?? -1);
+      if (PluginWhatsappempresaCliente::porEntidade($entities_id) === null) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Cliente nao encontrado.']);
+      }
+      $resultado = PluginWhatsappempresaCliente::salvarCodigo($entities_id, [
+         'id'        => (int)($_POST['id'] ?? 0),
+         'codigo'    => (string)($_POST['codigo'] ?? ''),
+         'descricao' => (string)($_POST['descricao'] ?? ''),
+         'is_ativo'  => (string)($_POST['is_ativo'] ?? '1')
+      ]);
+      if (is_string($resultado)) {
+         wae_responder(['sucesso' => false, 'mensagem' => $resultado]);
+      }
+      wae_responder(['sucesso' => true, 'id' => $resultado]);
+
+   case 'codigo_sugerir':
+      wae_exigir_admin();
+      wae_responder(['sucesso' => true, 'codigo' => PluginWhatsappempresaCliente::sugerirCodigo()]);
+
+   case 'codigo_remover':
+      wae_exigir_admin_escrita();
+      PluginWhatsappempresaCliente::removerCodigo((int)($_POST['entities_id'] ?? -1), (int)($_POST['id'] ?? 0));
+      wae_responder(['sucesso' => true]);
+
+   case 'contato_salvar':
+      wae_exigir_admin_escrita();
+      $entities_id = (int)($_POST['entities_id'] ?? -1);
+      if (PluginWhatsappempresaCliente::porEntidade($entities_id) === null) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Cliente nao encontrado.']);
+      }
+      $resultado = PluginWhatsappempresaCliente::salvarContato($entities_id, [
+         'id'       => (int)($_POST['id'] ?? 0),
+         'nome'     => (string)($_POST['nome'] ?? ''),
+         'telefone' => (string)($_POST['telefone'] ?? ''),
+         'is_ativo' => (string)($_POST['is_ativo'] ?? '1')
+      ]);
+      if (is_string($resultado)) {
+         wae_responder(['sucesso' => false, 'mensagem' => $resultado]);
+      }
+      wae_responder(['sucesso' => true, 'id' => $resultado]);
+
+   case 'contato_remover':
+      wae_exigir_admin_escrita();
+      PluginWhatsappempresaCliente::removerContato((int)($_POST['entities_id'] ?? -1), (int)($_POST['id'] ?? 0));
+      wae_responder(['sucesso' => true]);
 
    default:
       wae_responder(['sucesso' => false, 'mensagem' => 'Acao desconhecida.']);
