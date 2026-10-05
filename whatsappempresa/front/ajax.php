@@ -769,6 +769,62 @@ switch ($acao) {
       }
       wae_responder(['sucesso' => true, 'itens' => $itens]);
 
+   case 'fluxos_painel':
+      // Visao geral da aba Fluxos: cada aparelho conectado com os fluxos dele
+      wae_exigir_admin();
+      $aparelhos = [];
+      foreach (PluginWhatsappempresaConexao::listar() as $conexao) {
+         $cid = (int)$conexao['id'];
+         $anterior = PluginWhatsappempresaConexao::usar($cid);
+         $status = PluginWhatsappempresaServidor::status();
+         PluginWhatsappempresaConexao::restaurar($anterior);
+
+         $lista = [];
+         foreach (PluginWhatsappempresaConstrutor::listar(false, $cid) as $fluxo) {
+            $lista[] = [
+               'id'       => (int)$fluxo['id'],
+               'nome'     => (string)$fluxo['nome'],
+               'gatilho'  => (string)$fluxo['gatilho'],
+               'palavras' => (string)$fluxo['palavras'],
+               'is_ativo' => (int)$fluxo['is_ativo'],
+               'blocos'   => count($fluxo['nos'] ?? $fluxo['passos'] ?? []),
+               'avisos'   => count(PluginWhatsappempresaConstrutor::validar($fluxo)),
+               'date_mod' => Html::convDateTime($fluxo['date_mod'])
+            ];
+         }
+         $aparelhos[] = [
+            'id'        => $cid,
+            'nome'      => (string)$conexao['nome'],
+            'numero'    => (string)($conexao['numero'] ?? ''),
+            'padrao'    => (int)$conexao['is_padrao'] === 1,
+            'ligado'    => !empty($status['ligado']),
+            'conectado' => !empty($status['ligado']) && !empty($status['servico']['conectado']),
+            'fluxos'    => $lista
+         ];
+      }
+      wae_responder(['sucesso' => true, 'aparelhos' => $aparelhos, 'gatilhos' => PluginWhatsappempresaConstrutor::gatilhos()]);
+
+   case 'fluxo_ativar':
+      // Liga ou desliga o fluxo pela visao dos aparelhos, sem mexer nos blocos
+      wae_exigir_admin_escrita();
+      $id = (int)($_POST['id'] ?? 0);
+      if (PluginWhatsappempresaConstrutor::porId($id) === null) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Fluxo nao encontrado.']);
+      }
+      $ativo = !empty($_POST['ativo']) ? 1 : 0;
+      $DB->update('glpi_plugin_whatsappempresa_fluxos', ['is_ativo' => $ativo], ['id' => $id]);
+      wae_responder(['sucesso' => true, 'mensagem' => $ativo ? 'Fluxo ativado: ja responde neste aparelho.' : 'Fluxo desativado.']);
+
+   case 'fluxo_mover':
+      wae_exigir_admin_escrita();
+      $id = (int)($_POST['id'] ?? 0);
+      $destino = (int)($_POST['destino'] ?? 0);
+      if (!PluginWhatsappempresaConstrutor::mover($id, $destino)) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Nao foi possivel mover o fluxo.']);
+      }
+      PluginWhatsappempresaLog::registrar('Fluxo do WhatsApp movido de aparelho', 'Fluxo #' . $id . ' para ' . PluginWhatsappempresaConexao::nome($destino) . ' por ' . wae_usuario(), 'info', 'construtor', (int)Session::getLoginUserID());
+      wae_responder(['sucesso' => true, 'mensagem' => 'Fluxo agora atende pelo aparelho ' . PluginWhatsappempresaConexao::nome($destino) . '.']);
+
    case 'fluxo_obter':
       wae_exigir_admin();
       $fluxo = PluginWhatsappempresaConstrutor::porId((int)($_REQUEST['id'] ?? 0));

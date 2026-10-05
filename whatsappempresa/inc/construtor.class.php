@@ -569,6 +569,26 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
       ]);
    }
 
+   /**
+    * Passa o fluxo para outro aparelho (conexao); vai para o fim da lista de la
+    */
+   static function mover(int $id, int $conexaoDestino): bool {
+      global $DB;
+
+      $fluxo = self::porId($id);
+      if ($fluxo === null || PluginWhatsappempresaConexao::porId($conexaoDestino) === null) {
+         return false;
+      }
+      if ((int)$fluxo['conexoes_id'] === $conexaoDestino) {
+         return true;
+      }
+      $DB->update(self::TABELA, [
+         'conexoes_id' => $conexaoDestino,
+         'ordem'       => countElementsInTable(self::TABELA, ['is_deleted' => 0, 'conexoes_id' => $conexaoDestino])
+      ], ['id' => $id]);
+      return true;
+   }
+
    static function reordenar(array $ordem): void {
       global $DB;
 
@@ -1011,6 +1031,10 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
                $aviso('O bloco ' . $nome . ' não tem o fluxo de destino.', $id);
             } elseif ($destino === (int)($fluxo['id'] ?? 0)) {
                $aviso('O bloco ' . $nome . ' troca para o próprio fluxo (volta ao início).', $id);
+            } elseif (($alvo = self::porId($destino)) === null) {
+               $aviso('O bloco ' . $nome . ' aponta para um fluxo que foi removido.', $id);
+            } elseif ((int)$alvo['conexoes_id'] !== (int)($fluxo['conexoes_id'] ?? 0)) {
+               $aviso('O bloco ' . $nome . ' aponta para um fluxo de outro aparelho ("' . $alvo['nome'] . '"): a troca não acontece.', $id);
             }
          }
          if ($tipo === 'condicao' || $tipo === 'variavel') {
