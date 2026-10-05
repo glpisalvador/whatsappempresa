@@ -10,8 +10,9 @@ if (!defined('GLPI_ROOT')) {
  * Tudo roda dentro de files/_plugins/whatsappempresa, onde o GLPI ja tem escrita:
  *   node/  Node.js portatil baixado de nodejs.org (SHA-256 conferido)
  *   app/   servidor.js + package.json copiados do plugin e node_modules instalados pelo npm
- *   auth/  sessao do aparelho pareado
- *   run/   pid, log, variaveis de ambiente, scripts de inicio/vigia e tarefas em segundo plano
+ *   auth/  sessao do aparelho pareado da conexao 1 (numeros antigos continuam aqui)
+ *   run/   pid, log e scripts da conexao 1, vigia geral e tarefas em segundo plano
+ *   conexoes/<id>/auth e conexoes/<id>/run  demais numeros conectados (um processo Node cada)
  *
  * O vigia e uma linha no crontab do proprio usuario do servidor web: religa o processo
  * em ate 1 minuto se ele cair (inclusive quando o Apache e reiniciado).
@@ -22,7 +23,7 @@ class PluginWhatsappempresaServidor {
    const NODE_MINIMO = 20;
    const MARCA_CRON  = '# whatsappempresa-vigia';
 
-   static protected $hostCache = null;
+   static protected array $hostCache = [];
 
    // ============================================
    // Pastas
@@ -35,8 +36,21 @@ class PluginWhatsappempresaServidor {
 
    static function pastaNode(): string { return self::base() . '/node'; }
    static function pastaApp(): string  { return self::base() . '/app'; }
-   static function pastaAuth(): string { return self::base() . '/auth'; }
+   /** Pasta geral: tarefas (Node/npm), vigia e crontab */
    static function pastaRun(): string  { return self::base() . '/run'; }
+
+   /** Pasta propria de uma conexao (a 1 usa as pastas originais, sem mover o pareamento) */
+   static function pastaConexao(int $id): string { return self::base() . '/conexoes/' . $id; }
+
+   static function pastaAuth(?int $id = null): string {
+      $id = $id ?? PluginWhatsappempresaConexao::atual();
+      return $id === 1 ? self::base() . '/auth' : self::pastaConexao($id) . '/auth';
+   }
+
+   static function pastaRunConexao(?int $id = null): string {
+      $id = $id ?? PluginWhatsappempresaConexao::atual();
+      return $id === 1 ? self::pastaRun() : self::pastaConexao($id) . '/run';
+   }
    static function pastaMidia(): string { return self::base() . '/midia'; }
 
    /**
@@ -51,15 +65,15 @@ class PluginWhatsappempresaServidor {
       return is_file($caminho) ? $caminho : null;
    }
 
-   static function arquivoLog(): string   { return self::pastaRun() . '/servidor.log'; }
-   static function arquivoPid(): string   { return self::pastaRun() . '/servidor.pid'; }
-   static function arquivoAtivo(): string { return self::pastaRun() . '/ativo'; }
+   static function arquivoLog(): string   { return self::pastaRunConexao() . '/servidor.log'; }
+   static function arquivoPid(): string   { return self::pastaRunConexao() . '/servidor.pid'; }
+   static function arquivoAtivo(): string { return self::pastaRunConexao() . '/ativo'; }
 
    /**
     * Cria a estrutura de pastas. Devolve a mensagem de erro ou null.
     */
    static function prepararPastas(): ?string {
-      foreach ([self::base(), self::pastaApp(), self::pastaAuth(), self::pastaRun(), self::pastaMidia()] as $pasta) {
+      foreach ([self::base(), self::pastaApp(), self::pastaRun(), self::pastaMidia(), self::pastaAuth(), self::pastaRunConexao()] as $pasta) {
          if (!is_dir($pasta)) {
             @mkdir($pasta, 0770, true);
          }
@@ -70,10 +84,10 @@ class PluginWhatsappempresaServidor {
 
       // Sessao pareada por versoes anteriores, que ficava dentro da pasta do plugin
       $antiga = PluginWhatsappempresaConfig::pastaServidor() . '/auth';
-      if (is_file($antiga . '/creds.json') && !is_file(self::pastaAuth() . '/creds.json')) {
+      if (is_file($antiga . '/creds.json') && !is_file(self::pastaAuth(1) . '/creds.json')) {
          foreach ((array)glob($antiga . '/*') as $arquivo) {
             if (is_file($arquivo)) {
-               @copy($arquivo, self::pastaAuth() . '/' . basename($arquivo));
+               @copy($arquivo, self::pastaAuth(1) . '/' . basename($arquivo));
             }
          }
       }
@@ -446,15 +460,20 @@ class PluginWhatsappempresaServidor {
    /**
     * Grava o ambiente do Node e os scripts de inicio e de vigia
     */
+   /**
+    * Grava o ambiente e o script de inicio da conexao atual, e o vigia geral
+    */
    static function gravarScripts(): ?string {
-      $run  = self::pastaRun();
+      $id   = PluginWhatsappempresaConexao::atual();
+      $run  = self::pastaRunConexao($id);
       $base = self::base();
 
       $ambiente = [
-         'WAE_PORTA'        => (string)(int)PluginWhatsappempresaConfig::get('node_porta', '3456'),
+         'WAE_CONEXAO'      => (string)$id,
+         'WAE_PORTA'        => (string)PluginWhatsappempresaConexao::porta($id),
          'WAE_TOKEN'        => (string)PluginWhatsappempresaConfig::get('token_interno'),
          'WAE_WEBHOOK'      => self::urlWebhook(),
-         'WAE_AUTH'         => self::pastaAuth(),
+         'WAE_AUTH'         => self::pastaAuth($id),
          'WAE_MIDIA'        => self::pastaMidia(),
          'WAE_TLS_INSEGURO' => PluginWhatsappempresaConfig::ativo('webhook_tls_inseguro') ? '1' : '0',
          'HOME'             => $run
@@ -464,9 +483,10 @@ class PluginWhatsappempresaServidor {
          $linhas[] = $chave . '=' . self::aspasShell($valor);
       }
 
-      $iniciar = "#!/bin/sh\n# Gerado pelo plugin whatsappempresa: inicia o servidor WhatsApp\n"
+      // "--conexao=N" identifica o processo de cada numero (parar um nunca derruba outro)
+      $iniciar = "#!/bin/sh\n# Gerado pelo plugin whatsappempresa: inicia o servidor WhatsApp da conexao $id\n"
          . 'BASE=' . self::aspasShell($base) . "\n"
-         . "RUN=\"\$BASE/run\"\nLOG=\"\$RUN/servidor.log\"\nPID_ARQ=\"\$RUN/servidor.pid\"\n"
+         . 'RUN=' . self::aspasShell($run) . "\nLOG=\"\$RUN/servidor.log\"\nPID_ARQ=\"\$RUN/servidor.pid\"\n"
          . "exec 9>\"\$RUN/iniciar.lock\"\n"
          . "if command -v flock >/dev/null 2>&1; then flock -n 9 || exit 0; fi\n"
          . "if [ -f \"\$PID_ARQ\" ] && kill -0 \"\$(cat \"\$PID_ARQ\")\" 2>/dev/null; then exit 0; fi\n"
@@ -474,21 +494,54 @@ class PluginWhatsappempresaServidor {
          . "if [ -f \"\$LOG\" ] && [ \"\$(wc -c < \"\$LOG\")\" -gt 5242880 ]; then tail -c 1048576 \"\$LOG\" > \"\$LOG.tmp\" && mv \"\$LOG.tmp\" \"\$LOG\"; fi\n"
          . "cd \"\$BASE/app\" || exit 1\n"
          . "set -a\n. \"\$RUN/ambiente.env\"\nset +a\n"
-         . "setsid \"\$BASE/node/bin/node\" servidor.js >> \"\$LOG\" 2>&1 < /dev/null &\n"
+         . "setsid \"\$BASE/node/bin/node\" servidor.js --conexao=$id >> \"\$LOG\" 2>&1 < /dev/null &\n"
          . "echo \$! > \"\$PID_ARQ\"\n";
 
-      $vigia = "#!/bin/sh\n# Gerado pelo plugin whatsappempresa: religa o servidor se ele cair\n"
-         . 'RUN=' . self::aspasShell($run) . "\n"
-         . "[ -f \"\$RUN/ativo\" ] || exit 0\n"
-         . "exec /bin/sh \"\$RUN/iniciar.sh\"\n";
-
       $ok = @file_put_contents($run . '/ambiente.env', implode("\n", $linhas) . "\n") !== false
-         && @file_put_contents($run . '/iniciar.sh', $iniciar) !== false
-         && @file_put_contents($run . '/vigia.sh', $vigia) !== false;
+         && @file_put_contents($run . '/iniciar.sh', $iniciar) !== false;
 
       @chmod($run . '/ambiente.env', 0600);
 
-      return $ok ? null : 'Nao foi possivel gravar os scripts em ' . $run . '.';
+      if (!$ok) {
+         return 'Nao foi possivel gravar os scripts em ' . $run . '.';
+      }
+      return self::gravarVigia();
+   }
+
+   /**
+    * Vigia geral (uma linha no crontab): religa cada conexao marcada como ativa
+    */
+   static function gravarVigia(): ?string {
+      $vigia = "#!/bin/sh\n# Gerado pelo plugin whatsappempresa: religa os servidores WhatsApp que cairem\n"
+         . 'BASE=' . self::aspasShell(self::base()) . "\n"
+         . "for RUN in \"\$BASE/run\" \"\$BASE\"/conexoes/*/run; do\n"
+         . "   [ -f \"\$RUN/ativo\" ] && [ -f \"\$RUN/iniciar.sh\" ] && /bin/sh \"\$RUN/iniciar.sh\"\n"
+         . "done\nexit 0\n";
+
+      return @file_put_contents(self::pastaRun() . '/vigia.sh', $vigia) !== false
+         ? null
+         : 'Nao foi possivel gravar o vigia em ' . self::pastaRun() . '.';
+   }
+
+   /**
+    * Apaga pareamento e arquivos de execucao de uma conexao removida
+    */
+   static function apagarPastaConexao(int $id): void {
+      if ($id === 1) {
+         foreach ((array)glob(self::pastaAuth(1) . '/*') as $arquivo) {
+            if (is_file($arquivo)) {
+               @unlink($arquivo);
+            }
+         }
+         foreach (['ativo', 'servidor.pid', 'iniciar.sh', 'ambiente.env', 'iniciar.lock'] as $nome) {
+            @unlink(self::pastaRun() . '/' . $nome);
+         }
+         return;
+      }
+      $pasta = self::pastaConexao($id);
+      if (is_dir($pasta) && str_contains($pasta, '/whatsappempresa/conexoes/')) {
+         self::executar('rm -rf ' . escapeshellarg($pasta));
+      }
    }
 
    static function linhaCron(): string {
@@ -570,7 +623,7 @@ class PluginWhatsappempresaServidor {
       }
 
       @touch(self::arquivoAtivo());
-      self::executar('/bin/sh ' . escapeshellarg(self::pastaRun() . '/iniciar.sh') . ' > /dev/null 2>&1');
+      self::executar('/bin/sh ' . escapeshellarg(self::pastaRunConexao() . '/iniciar.sh') . ' > /dev/null 2>&1');
 
       return null;
    }
@@ -597,8 +650,12 @@ class PluginWhatsappempresaServidor {
       }
       @unlink(self::arquivoPid());
 
-      // Processo orfao desta mesma instalacao (pid perdido)
-      self::executar('pkill -f -- ' . escapeshellarg(self::pastaNode() . '/bin/node servidor.js') . ' 2>/dev/null');
+      // Processo orfao desta mesma conexao (pid perdido); a 1 tambem cobre o formato antigo, sem marca
+      $id = PluginWhatsappempresaConexao::atual();
+      self::executar('pkill -f -- ' . escapeshellarg(self::pastaNode() . '/bin/node servidor.js --conexao=' . $id . '$') . ' 2>/dev/null');
+      if ($id === 1) {
+         self::executar('pkill -f -- ' . escapeshellarg(self::pastaNode() . '/bin/node servidor.js$') . ' 2>/dev/null');
+      }
    }
 
    static function deveEstarLigado(): bool {
@@ -613,6 +670,21 @@ class PluginWhatsappempresaServidor {
          return false;
       }
       return self::iniciar() === null;
+   }
+
+   /**
+    * Tarefa automatica: confere todas as conexoes. Devolve os nomes das que foram religadas.
+    */
+   static function garantirTodos(): array {
+      $religadas = [];
+      foreach (PluginWhatsappempresaConexao::listar() as $conexao) {
+         $anterior = PluginWhatsappempresaConexao::usar((int)$conexao['id']);
+         if (self::garantirLigado()) {
+            $religadas[] = (string)$conexao['nome'];
+         }
+         PluginWhatsappempresaConexao::restaurar($anterior);
+      }
+      return $religadas;
    }
 
    static function logServidor(int $linhas = 80): string {
@@ -630,8 +702,9 @@ class PluginWhatsappempresaServidor {
             @unlink($arquivo);
          }
       }
-      PluginWhatsappempresaConfig::set('numero_host', '');
-      self::$hostCache = null;
+      $id = PluginWhatsappempresaConexao::atual();
+      PluginWhatsappempresaConexao::gravarNumero($id, '');
+      unset(self::$hostCache[$id]);
    }
 
    /**
@@ -641,7 +714,11 @@ class PluginWhatsappempresaServidor {
     * Desliga o servico e tira o vigia do crontab, mantendo Node, dependencias e a sessao do aparelho
     */
    static function desligarTudo(): void {
-      self::parar();
+      foreach (PluginWhatsappempresaConexao::listar() as $conexao) {
+         $anterior = PluginWhatsappempresaConexao::usar((int)$conexao['id']);
+         self::parar();
+         PluginWhatsappempresaConexao::restaurar($anterior);
+      }
       if (self::shellDisponivel() && self::comandoExiste('crontab')) {
          self::ajustarCron(false);
       }
@@ -739,30 +816,59 @@ class PluginWhatsappempresaServidor {
          ];
       }
 
-      $status   = self::status();
-      $ligado   = $status['ligado'];
-      $etapas[] = [
-         'chave'   => 'servico',
-         'rotulo'  => 'Servico WhatsApp',
-         'estado'  => $ligado ? 'ok' : (self::deveEstarLigado() ? 'erro' : 'pendente'),
-         'detalhe' => $ligado
-            ? 'Em execucao (pid ' . self::pid() . ') respondendo na porta ' . (int)PluginWhatsappempresaConfig::get('node_porta', '3456') . '.'
-            : (self::deveEstarLigado() ? 'Deveria estar ligado mas nao responde. Veja o log do servidor.' : 'Parado.'),
-         'acoes'   => $ligado ? ['servico_reiniciar', 'servico_parar'] : ['servico_iniciar']
-      ];
-
-      $conectado = $ligado && !empty($status['servico']['conectado']);
-      $etapas[] = [
-         'chave'   => 'aparelho',
-         'rotulo'  => 'Aparelho pareado',
-         'estado'  => $conectado ? 'ok' : 'pendente',
-         'detalhe' => $conectado
-            ? 'Conectado como ' . trim(($status['servico']['nome'] ?? '') . ' ' . ($status['servico']['numero'] ?? '')) . '.'
-            : ($ligado ? 'Leia o QR Code com o WhatsApp do aparelho da empresa.' : 'Disponivel depois que o servico estiver em execucao.'),
-         'acoes'   => $conectado ? ['aparelho_desvincular'] : []
-      ];
-
       return $etapas;
+   }
+
+   /**
+    * Situacao de cada numero conectado, para os cartoes da aba Servidor
+    */
+   static function resumoConexoes(): array {
+      global $DB;
+
+      $hoje  = date('Y-m-d 00:00:00');
+      $itens = [];
+
+      foreach (PluginWhatsappempresaConexao::listar() as $conexao) {
+         $id = (int)$conexao['id'];
+         $anterior = PluginWhatsappempresaConexao::usar($id);
+
+         $status    = self::status();
+         $ligado    = $status['ligado'];
+         $servico   = $status['servico'] ?? [];
+         $conectado = $ligado && !empty($servico['conectado']);
+         $atualizada = PluginWhatsappempresaConexao::porId($id) ?? $conexao;
+
+         $contar = function (array $where) use ($DB, $id): int {
+            return countElementsInTable('glpi_plugin_whatsappempresa_mensagens', $where + ['conexoes_id' => $id]);
+         };
+
+         $itens[] = [
+            'id'            => $id,
+            'nome'          => (string)$atualizada['nome'],
+            'numero'        => (string)($atualizada['numero'] ?? ''),
+            'nome_aparelho' => (string)($atualizada['nome_aparelho'] ?? ''),
+            'porta'         => (int)$atualizada['porta'],
+            'padrao'        => (int)$atualizada['is_padrao'] === 1,
+            'deve_ligado'   => self::deveEstarLigado(),
+            'ligado'        => $ligado,
+            'conectado'     => $conectado,
+            'tem_qr'        => $ligado && !$conectado && !empty($servico['tem_qr']),
+            'pareado'       => is_file(self::pastaAuth($id) . '/creds.json'),
+            'pid'           => $ligado ? self::pid() : 0,
+            'desde'         => !empty($servico['tempo_ms']) ? Html::convDateTime(date('Y-m-d H:i:s', time() - (int)((int)$servico['tempo_ms'] / 1000))) : '',
+            'fluxos'        => PluginWhatsappempresaConexao::totalFluxos($id),
+            'fluxos_ativos' => countElementsInTable('glpi_plugin_whatsappempresa_fluxos', ['conexoes_id' => $id, 'is_deleted' => 0, 'is_ativo' => 1]),
+            'recebidas'     => $contar(['direcao' => 'entrada', 'date_creation' => ['>=', $hoje]]),
+            'enviadas'      => $contar(['direcao' => 'saida', 'date_creation' => ['>=', $hoje]]),
+            'falhas'        => $contar(['status_envio' => 'erro', 'date_creation' => ['>=', $hoje]]),
+            'versao_wa'     => (string)($servico['versao_wa'] ?? ''),
+            'versao_baileys' => (string)($servico['versao_baileys'] ?? '')
+         ];
+
+         PluginWhatsappempresaConexao::restaurar($anterior);
+      }
+
+      return $itens;
    }
 
    // ============================================
@@ -774,7 +880,8 @@ class PluginWhatsappempresaServidor {
          return ['ok' => false, 'http' => 0, 'dados' => null];
       }
 
-      $ch = curl_init(PluginWhatsappempresaConfig::urlNode() . $rota);
+      // Cada conexao tem o seu processo, na sua porta
+      $ch = curl_init('http://127.0.0.1:' . PluginWhatsappempresaConexao::porta(PluginWhatsappempresaConexao::atual()) . $rota);
 
       $opcoes = [
          CURLOPT_RETURNTRANSFER => true,
@@ -811,12 +918,13 @@ class PluginWhatsappempresaServidor {
    static function status(): array {
       $r = self::requisitar('GET', '/status', [], 5);
 
-      // Aproveita a consulta para manter o numero do aparelho atualizado
+      // Aproveita a consulta para manter o numero do aparelho da conexao atualizado
       if ($r['ok'] && !empty($r['dados']['numero'])) {
          $numero = PluginWhatsappempresaConfig::limparTelefone((string)$r['dados']['numero']);
-         if ($numero !== '' && $numero !== (string)PluginWhatsappempresaConfig::get('numero_host', '')) {
-            PluginWhatsappempresaConfig::set('numero_host', $numero);
-            self::$hostCache = $numero;
+         if ($numero !== '') {
+            $id = PluginWhatsappempresaConexao::atual();
+            PluginWhatsappempresaConexao::gravarNumero($id, $numero, (string)($r['dados']['nome'] ?? ''));
+            self::$hostCache[$id] = $numero;
          }
       }
 
@@ -848,24 +956,22 @@ class PluginWhatsappempresaServidor {
     * Numero do aparelho conectado ao servidor: e quem aparece como remetente
     */
    static function numeroHost(): string {
-      if (self::$hostCache !== null) {
-         return self::$hostCache;
+      $id = PluginWhatsappempresaConexao::atual();
+      if (isset(self::$hostCache[$id])) {
+         return self::$hostCache[$id];
       }
 
-      $gravado = PluginWhatsappempresaConfig::limparTelefone((string)PluginWhatsappempresaConfig::get('numero_host', ''));
+      $gravado = PluginWhatsappempresaConfig::limparTelefone((string)(PluginWhatsappempresaConexao::porId($id)['numero'] ?? ''));
       if ($gravado !== '') {
-         self::$hostCache = $gravado;
-         return $gravado;
+         return self::$hostCache[$id] = $gravado;
       }
 
       $r = self::requisitar('GET', '/status', [], 3);
       $numero = PluginWhatsappempresaConfig::limparTelefone((string)($r['dados']['numero'] ?? ''));
       if ($numero !== '') {
-         PluginWhatsappempresaConfig::set('numero_host', $numero);
+         PluginWhatsappempresaConexao::gravarNumero($id, $numero);
       }
-
-      self::$hostCache = $numero;
-      return $numero;
+      return self::$hostCache[$id] = $numero;
    }
 
    /**
@@ -879,7 +985,7 @@ class PluginWhatsappempresaServidor {
       $host    = (string)parse_url($webhook, PHP_URL_HOST);
 
       return [
-         'Porta local do servidor' => (int)PluginWhatsappempresaConfig::get('node_porta', '3456') . ' (somente 127.0.0.1)',
+         'Conexões'                => count(PluginWhatsappempresaConexao::listar()) . ' número(s), cada um na própria porta (somente 127.0.0.1)',
          'Webhook'                 => $webhook . ' (' . ($manual !== '' ? 'informado nos parametros' : 'derivado da URL do GLPI') . ')',
          'Destino do webhook'      => $host !== '' ? $host . ' / ' . (@gethostbyname($host) ?: '-') : '-',
          'URL do GLPI'             => (string)($CFG_GLPI['url_base'] ?? '-'),

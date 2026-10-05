@@ -2,6 +2,14 @@
 
 O arquivo para download de cada versão está em [Releases](https://github.com/glpisalvador/whatsappempresa/releases).
 
+## 3.4.0 — 2026-09-29
+
+Versão intermediária de 29/09/2026.
+
+**Arquivos novos:** `inc/conexao.class.php`
+
+**Arquivos alterados:** `front/ajax.php`, `front/painel.form.php`, `front/webhook.php`, `hook.php`, `inc/config.class.php`, `inc/construtor.class.php`, `inc/conversa.class.php`, `inc/fluxo.class.php`, `inc/mensagem.class.php`, `inc/monitor.class.php`, `inc/painel.class.php`, `inc/servidor.class.php`, `public/css/estilo.css`, `public/js/construtor.js`, `public/js/conversa.js`, `public/js/painel.js`, `servidor/servidor.js`, `setup.php`, `templates/painel_fluxos.html.twig`, `templates/painel_historico.html.twig`, `templates/painel_parametros.html.twig`, `templates/painel_servidor.html.twig`
+
 ## 3.3.1 — 2026-09-29
 
 Versão intermediária de 29/09/2026.

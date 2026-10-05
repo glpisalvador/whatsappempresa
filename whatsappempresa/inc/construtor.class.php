@@ -398,12 +398,20 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
    // Persistencia dos fluxos
    // ============================================
 
-   static function listar(bool $somenteAtivos = false): array {
+   /**
+    * Fluxos de uma conexao (numero). Sem conexao informada: os da conexao em uso.
+    * conexao = -1 lista os de todas.
+    */
+   static function listar(bool $somenteAtivos = false, ?int $conexao = null): array {
       global $DB;
 
       $where = ['is_deleted' => 0];
       if ($somenteAtivos) {
          $where['is_ativo'] = 1;
+      }
+      $conexao = $conexao ?? PluginWhatsappempresaConexao::atual();
+      if ($conexao > 0) {
+         $where['conexoes_id'] = $conexao;
       }
 
       $itens = [];
@@ -517,9 +525,12 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
          return $id;
       }
 
+      // Fluxo novo nasce na conexao informada (ou na conexao em uso)
+      $conexao = (int)($dados['conexoes_id'] ?? 0);
+      $campos['conexoes_id'] = PluginWhatsappempresaConexao::porId($conexao) !== null ? $conexao : PluginWhatsappempresaConexao::atual();
       $campos['users_id'] = (int)Session::getLoginUserID();
       if (!isset($campos['ordem'])) {
-         $campos['ordem'] = countElementsInTable(self::TABELA, ['is_deleted' => 0]);
+         $campos['ordem'] = countElementsInTable(self::TABELA, ['is_deleted' => 0, 'conexoes_id' => $campos['conexoes_id']]);
       }
       $DB->insert(self::TABELA, $campos);
 
@@ -534,14 +545,20 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
       }
    }
 
-   static function duplicar(int $id): int {
+   /**
+    * Copia o fluxo (inativo), na mesma conexao ou em outra
+    */
+   static function duplicar(int $id, int $conexaoDestino = 0): int {
       $fluxo = self::porId($id);
       if ($fluxo === null) {
          return 0;
       }
+      $destino = PluginWhatsappempresaConexao::porId($conexaoDestino) !== null ? $conexaoDestino : (int)$fluxo['conexoes_id'];
+      $nome = $destino === (int)$fluxo['conexoes_id'] ? 'Copia de ' . $fluxo['nome'] : (string)$fluxo['nome'];
 
       return self::salvar([
-         'nome'        => mb_substr('Copia de ' . $fluxo['nome'], 0, 120),
+         'conexoes_id' => $destino,
+         'nome'        => mb_substr($nome, 0, 120),
          'descricao'   => (string)$fluxo['descricao'],
          'gatilho'     => 'manual',
          'palavras'    => '',
@@ -1211,6 +1228,10 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
          // Continua em outro fluxo, com as mesmas variaveis
          if (!empty($resultado['trocar'])) {
             $novo = self::porId((int)$resultado['trocar']);
+            // Troca so dentro do mesmo numero: cada conexao tem os seus fluxos
+            if ($novo !== null && (int)$novo['conexoes_id'] !== (int)$fluxo['conexoes_id']) {
+               $novo = null;
+            }
             if ($novo === null || (int)$novo['is_ativo'] !== 1 || self::primeiroBloco($novo) === '') {
                return self::finalizar($telefone, $respostas, $users_id, 'O atendimento seguinte nao esta disponivel agora.', false);
             }
@@ -2395,14 +2416,19 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
          $calendarios[] = ['id' => (int)$linha['id'], 'nome' => (string)$linha['name']];
       }
 
+      // Todos os fluxos com a conexao de cada um: o editor mostra so os da conexao aberta
       $fluxos = [];
       foreach ($DB->request([
-         'SELECT' => ['id', 'nome', 'is_ativo'],
+         'SELECT' => ['id', 'nome', 'is_ativo', 'conexoes_id'],
          'FROM'   => self::TABELA,
          'WHERE'  => ['is_deleted' => 0],
          'ORDER'  => ['ordem ASC', 'id ASC']
       ]) as $linha) {
-         $fluxos[] = ['id' => (int)$linha['id'], 'nome' => (string)$linha['nome'] . ((int)$linha['is_ativo'] === 1 ? '' : ' (inativo)')];
+         $fluxos[] = [
+            'id'          => (int)$linha['id'],
+            'nome'        => (string)$linha['nome'] . ((int)$linha['is_ativo'] === 1 ? '' : ' (inativo)'),
+            'conexoes_id' => (int)$linha['conexoes_id']
+         ];
       }
 
       $objetos = [];
@@ -2422,7 +2448,8 @@ class PluginWhatsappempresaConstrutor extends CommonDBTM {
          'tipos'         => $tipos,
          'urgencias'     => $urgencias,
          'calendarios'   => $calendarios,
-         'fluxos'        => $fluxos
+         'fluxos'        => $fluxos,
+         'conexoes'      => PluginWhatsappempresaConexao::opcoes()
       ];
    }
 

@@ -788,6 +788,8 @@ class PluginWhatsappempresaFluxo {
       $telefone = PluginWhatsappempresaConfig::limparTelefone($telefone);
       $chave    = PluginWhatsappempresaConfig::chaveTelefone($telefone);
       $minutos  = (int)PluginWhatsappempresaConfig::get('sessao_minutos', '15');
+      // Cada numero conectado (conexao) tem a sua propria sessao para o mesmo telefone
+      $conexao  = PluginWhatsappempresaConexao::atual();
 
       $encontrada = null;
 
@@ -795,7 +797,7 @@ class PluginWhatsappempresaFluxo {
       if ($jid !== '') {
          foreach ($DB->request([
             'FROM'  => 'glpi_plugin_whatsappempresa_sessoes',
-            'WHERE' => ['jid' => $jid],
+            'WHERE' => ['jid' => $jid, 'conexoes_id' => $conexao],
             'LIMIT' => 1
          ]) as $linha) {
             $encontrada = $linha;
@@ -806,7 +808,7 @@ class PluginWhatsappempresaFluxo {
       if ($encontrada === null) {
          foreach ($DB->request([
             'FROM'  => 'glpi_plugin_whatsappempresa_sessoes',
-            'WHERE' => ['telefone' => $telefone],
+            'WHERE' => ['telefone' => $telefone, 'conexoes_id' => $conexao],
             'LIMIT' => 1
          ]) as $linha) {
             $encontrada = $linha;
@@ -817,7 +819,7 @@ class PluginWhatsappempresaFluxo {
       if ($encontrada === null && strlen($chave) >= 8) {
          foreach ($DB->request([
             'FROM'  => 'glpi_plugin_whatsappempresa_sessoes',
-            'WHERE' => ['chave' => $chave],
+            'WHERE' => ['chave' => $chave, 'conexoes_id' => $conexao],
             'ORDER' => 'date_mod DESC',
             'LIMIT' => 1
          ]) as $linha) {
@@ -829,7 +831,7 @@ class PluginWhatsappempresaFluxo {
       if ($encontrada === null && strlen($chave) >= 8) {
          foreach ($DB->request([
             'FROM'  => 'glpi_plugin_whatsappempresa_sessoes',
-            'WHERE' => ['telefone' => ['LIKE', '%' . $chave]],
+            'WHERE' => ['telefone' => ['LIKE', '%' . $chave], 'conexoes_id' => $conexao],
             'ORDER' => 'date_mod DESC',
             'LIMIT' => 1
          ]) as $linha) {
@@ -893,6 +895,7 @@ class PluginWhatsappempresaFluxo {
       }
 
       $DB->insert('glpi_plugin_whatsappempresa_sessoes', [
+         'conexoes_id' => $conexao,
          'telefone' => $telefone,
          'chave'    => $chave,
          'jid'      => $jid !== '' ? $jid : null,
@@ -903,6 +906,7 @@ class PluginWhatsappempresaFluxo {
 
       return [
          'id'              => (int)$DB->insertId(),
+         'conexoes_id'     => $conexao,
          'telefone'        => $telefone,
          'chave'           => $chave,
          'jid'             => $jid,
@@ -930,12 +934,13 @@ class PluginWhatsappempresaFluxo {
 
       $telefone = PluginWhatsappempresaConfig::limparTelefone($telefone);
       $chave    = PluginWhatsappempresaConfig::chaveTelefone($telefone);
+      $conexao  = PluginWhatsappempresaConexao::atual();
 
       $alvo = 0;
       foreach ($DB->request([
          'SELECT' => ['id'],
          'FROM'   => 'glpi_plugin_whatsappempresa_sessoes',
-         'WHERE'  => ['telefone' => $telefone],
+         'WHERE'  => ['telefone' => $telefone, 'conexoes_id' => $conexao],
          'LIMIT'  => 1
       ]) as $linha) {
          $alvo = (int)$linha['id'];
@@ -945,7 +950,7 @@ class PluginWhatsappempresaFluxo {
          foreach ($DB->request([
             'SELECT' => ['id'],
             'FROM'   => 'glpi_plugin_whatsappempresa_sessoes',
-            'WHERE'  => ['chave' => $chave],
+            'WHERE'  => ['chave' => $chave, 'conexoes_id' => $conexao],
             'ORDER'  => 'date_mod DESC',
             'LIMIT'  => 1
          ]) as $linha) {
@@ -955,6 +960,7 @@ class PluginWhatsappempresaFluxo {
 
       if ($alvo <= 0) {
          $DB->insert('glpi_plugin_whatsappempresa_sessoes', array_merge([
+            'conexoes_id' => $conexao,
             'telefone' => $telefone,
             'chave'    => $chave,
             'fluxo'    => self::FLUXO_MENU,

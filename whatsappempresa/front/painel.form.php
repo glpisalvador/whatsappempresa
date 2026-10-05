@@ -14,12 +14,6 @@ if (isset($_POST['update'])) {
       Html::back();
    }
 
-   $porta = isset($_POST['node_porta']) ? (int)$_POST['node_porta'] : null;
-   if ($porta !== null && ($porta < 1024 || $porta > 65535)) {
-      Session::addMessageAfterRedirect(htmlescape('A porta deve estar entre 1024 e 65535.'), false, ERROR);
-      Html::back();
-   }
-
    $antes = PluginWhatsappempresaConfig::todas();
 
    foreach ($campos['caixas'] as $chave) {
@@ -48,20 +42,32 @@ if (isset($_POST['update'])) {
 
    $mensagem = 'Configuracoes salvas.';
 
-   // Porta, webhook e TLS vao para o ambiente do Node: aplica reiniciando o servico, se estiver ligado
+   // Webhook e TLS vao para o ambiente de cada servidor Node: aplica reiniciando os numeros que estao ligados
    $depois = PluginWhatsappempresaConfig::todas();
    $mudouServidor = false;
-   foreach (['node_porta', 'webhook_url', 'webhook_tls_inseguro'] as $chave) {
+   foreach (['webhook_url', 'webhook_tls_inseguro'] as $chave) {
       if ((string)($antes[$chave] ?? '') !== (string)($depois[$chave] ?? '')) {
          $mudouServidor = true;
       }
    }
-   if ($mudouServidor && PluginWhatsappempresaServidor::deveEstarLigado()) {
-      PluginWhatsappempresaServidor::parar();
-      $erro = PluginWhatsappempresaServidor::iniciar();
-      $mensagem .= $erro === null
-         ? ' O servidor WhatsApp foi reiniciado para aplicar a conexao.'
-         : ' Nao foi possivel reiniciar o servidor: ' . $erro;
+   if ($mudouServidor) {
+      $reiniciados = 0;
+      $falhas = [];
+      foreach (PluginWhatsappempresaConexao::listar() as $conexao) {
+         $anterior = PluginWhatsappempresaConexao::usar((int)$conexao['id']);
+         if (PluginWhatsappempresaServidor::deveEstarLigado()) {
+            PluginWhatsappempresaServidor::parar();
+            $erro = PluginWhatsappempresaServidor::iniciar();
+            $erro === null ? $reiniciados++ : $falhas[] = $conexao['nome'] . ': ' . $erro;
+         }
+         PluginWhatsappempresaConexao::restaurar($anterior);
+      }
+      if ($reiniciados > 0) {
+         $mensagem .= ' ' . $reiniciados . ' numero(s) reiniciado(s) para aplicar a mudanca.';
+      }
+      if ($falhas) {
+         $mensagem .= ' Nao foi possivel reiniciar: ' . implode('; ', $falhas);
+      }
    }
 
    Session::addMessageAfterRedirect(htmlescape($mensagem), false, INFO);

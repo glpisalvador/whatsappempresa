@@ -2513,3 +2513,117 @@ td.wae-vazio {
 .wae-cons-tela .wae-df .drawflow-node {
    cursor: move;
 }
+/* ============================================
+   Aba Servidor: numeros conectados
+   ============================================ */
+
+.wae-cons-barra .wae-cons-seletor-conexao {
+   width: auto;
+   min-width: 180px;
+   max-width: 260px;
+}
+
+.wae-nova-conexao {
+   width: 340px;
+   max-width: 100%;
+}
+
+.wae-conexao {
+   height: 100%;
+   border: 1px solid #dee2e6;
+   box-shadow: none;
+}
+
+.wae-conexao-padrao {
+   border-color: #e5a54b;
+}
+
+.wae-conexao .card-header {
+   display: flex;
+   align-items: center;
+   gap: 10px;
+   padding: 10px 15px;
+   background: #f8f9fa;
+}
+
+.wae-con-titulo {
+   min-width: 0;
+}
+
+.wae-con-ponto {
+   width: 10px;
+   height: 10px;
+   border-radius: 50%;
+   flex: 0 0 auto;
+}
+
+.wae-con-renomear {
+   width: 220px;
+}
+
+.wae-con-corpo {
+   display: flex;
+   align-items: flex-start;
+   gap: 15px;
+   flex-wrap: wrap;
+}
+
+.wae-con-visual {
+   width: 170px;
+   min-height: 170px;
+   flex: 0 0 auto;
+   display: flex;
+   flex-direction: column;
+   align-items: center;
+   justify-content: center;
+   gap: 8px;
+   border: 1px dashed #dee2e6;
+   border-radius: 4px;
+   color: #6c757d;
+   font-size: 12px;
+   text-align: center;
+   padding: 8px;
+}
+
+.wae-con-visual i {
+   font-size: 34px;
+}
+
+.wae-con-visual img {
+   width: 100%;
+   height: auto;
+   background: #fff;
+}
+
+.wae-con-ok {
+   color: #198754;
+   border-color: rgba(25, 135, 84, 0.4);
+   background: rgba(25, 135, 84, 0.06);
+}
+
+.wae-con-parado {
+   color: #999;
+}
+
+.wae-con-dados {
+   flex: 1 1 200px;
+   --tblr-datagrid-item-width: 9rem;
+   font-size: 12px;
+}
+
+.wae-conexao .card-footer {
+   padding: 8px 15px;
+}
+
+.wae-con-log {
+   max-height: 16rem;
+   overflow: auto;
+   white-space: pre-wrap;
+   padding: 10px;
+   margin: 8px 0 0;
+   border-radius: 4px;
+}
+
+.wae-conversa-conexao {
+   font-size: 10px;
+}

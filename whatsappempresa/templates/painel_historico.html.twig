@@ -1,5 +1,5 @@
 {# Aba Mensagens: todas as mensagens enviadas e recebidas pelo WhatsApp, em tempo real #}
-<div class="card wae-historico" id="wae-historico">
+<div class="card wae-historico" id="wae-historico" data-varias-conexoes="{{ conexoes|length > 1 ? 1 : 0 }}">
    <div class="card-header">
       <div class="d-flex flex-wrap align-items-center gap-2 w-100">
          <h3 class="card-title me-2"><i class="ti ti-messages me-2"></i>Mensagens</h3>
@@ -11,6 +11,14 @@
                <span class="input-icon-addon"><i class="ti ti-search"></i></span>
                <input type="search" class="form-control form-control-sm" id="wae-hist-busca" placeholder="Número, texto ou #chamado" autocomplete="off">
             </div>
+            {% if conexoes|length > 1 %}
+            <select class="form-select form-select-sm w-auto" id="wae-hist-conexao" title="Número de WhatsApp">
+               <option value="0">Todos os números</option>
+               {% for c in conexoes %}
+               <option value="{{ c.id }}">{{ c.rotulo }}</option>
+               {% endfor %}
+            </select>
+            {% endif %}
             <select class="form-select form-select-sm w-auto" id="wae-hist-direcao" title="Direção">
                <option value="">Enviadas e recebidas</option>
                <option value="entrada">Recebidas</option>
@@ -41,6 +49,7 @@
          <thead>
             <tr>
                <th>Data/hora</th>
+               {% if conexoes|length > 1 %}<th>Número</th>{% endif %}
                <th></th>
                <th>De</th>
                <th>Para</th>

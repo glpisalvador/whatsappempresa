@@ -110,7 +110,7 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
             break;
 
          case self::ABA_HISTORICO:
-            self::renderizar('painel_historico', $variaveis);
+            self::renderizar('painel_historico', $variaveis + ['conexoes' => PluginWhatsappempresaConexao::opcoes()]);
             break;
 
          case self::ABA_FLUXOS:
@@ -221,7 +221,7 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
                'followup_encerramento', 'followup_privado', 'log_fluxos'
             ];
             $numeros = [
-               'node_porta', 'retencao_dias',
+               'retencao_dias',
                'sessao_codigo_minutos', 'tentativas_max', 'bloqueio_minutos', 'sessao_minutos',
                'abertura_tipo', 'abertura_urgencia', 'abertura_categoria', 'conversa_minutos'
             ];

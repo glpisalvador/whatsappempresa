@@ -72,13 +72,13 @@
    };
 
    // ============================================
-   // Aba Servidor
+   // Aba Servidor: preparacao (uma vez) e numeros conectados (um servidor Node por numero)
    // ============================================
 
    var ESTADOS = {
       ok:        { classe: 'bg-green-lt',  icone: 'ti ti-circle-check',    texto: 'Pronto' },
       pendente:  { classe: 'bg-yellow-lt', icone: 'ti ti-alert-circle',    texto: 'Pendente' },
-      erro:      { classe: 'bg-red-lt',    icone: 'ti ti-alert-triangle',  texto: 'Atencao' },
+      erro:      { classe: 'bg-red-lt',    icone: 'ti ti-alert-triangle',  texto: 'Atenção' },
       andamento: { classe: 'bg-blue-lt',   icone: 'ti ti-loader-2',        texto: 'Em andamento' }
    };
 
@@ -88,19 +88,15 @@
       dependencias_instalar: { rotulo: 'Instalar',      icone: 'ti ti-package',      classe: 'btn-primary' },
       vigia_ativar:          { rotulo: 'Ativar',        icone: 'ti ti-eye-check',    classe: 'btn-primary' },
       vigia_desativar:       { rotulo: 'Desativar',     icone: 'ti ti-eye-off',      classe: 'btn-outline-danger' },
-      webhook_testar:        { rotulo: 'Testar',        icone: 'ti ti-arrows-exchange', classe: 'btn-outline-secondary' },
-      servico_iniciar:       { rotulo: 'Iniciar',       icone: 'ti ti-player-play',  classe: 'btn-success' },
-      servico_reiniciar:     { rotulo: 'Reiniciar',     icone: 'ti ti-refresh',      classe: 'btn-outline-secondary' },
-      servico_parar:         { rotulo: 'Parar',         icone: 'ti ti-player-stop',  classe: 'btn-outline-danger' },
-      aparelho_desvincular:  { rotulo: 'Desvincular',   icone: 'ti ti-unlink',       classe: 'btn-outline-danger' }
+      webhook_testar:        { rotulo: 'Testar',        icone: 'ti ti-arrows-exchange', classe: 'btn-outline-secondary' }
    };
 
    var CONFIRMACOES = {
-      node_atualizar: 'Baixar e instalar a versao LTS mais recente do Node.js? O servico sera reiniciado em seguida, se estiver ligado.',
-      dependencias_instalar: 'Instalar ou atualizar as dependencias do servidor? Isso pode levar alguns minutos.',
-      servico_parar: 'Parar o servidor WhatsApp? As mensagens deixam de ser recebidas e enviadas ate que ele seja iniciado de novo.',
-      aparelho_desvincular: 'Desvincular o aparelho? Sera preciso ler um novo QR Code para voltar a atender.',
-      vigia_desativar: 'Desativar o vigia? Se o servidor cair, ele nao sera religado automaticamente.'
+      node_atualizar: 'Baixar e instalar a versão LTS mais recente do Node.js? Os números ligados serão reiniciados em seguida.',
+      dependencias_instalar: 'Instalar ou atualizar as dependências do servidor? Isso pode levar alguns minutos.',
+      vigia_desativar: 'Desativar o vigia? Se um número cair, ele não será religado automaticamente.',
+      servico_parar: 'Parar este número? As mensagens dele deixam de ser recebidas e enviadas até que seja iniciado de novo.',
+      aparelho_desvincular: 'Desvincular o aparelho deste número? Será preciso ler um novo QR Code para voltar a atender.'
    };
 
    var TAREFAS = { node_instalar: 'node', node_atualizar: 'node', dependencias_instalar: 'dependencias' };
@@ -108,7 +104,10 @@
    var painel = null;
    var ocupado = false;
    var etapasAtuais = [];
-   var timerQr = null;
+   var conexoesAtuais = [];
+   var desenhoConexao = {};   // id -> assinatura do ultimo desenho (so redesenha o que mudou)
+   var qrCache = {};          // id -> imagem do QR
+   var timerConexoes = null;
    var timerEtapas = null;
 
    function el(seletor) {
@@ -123,62 +122,47 @@
       });
    }
 
+   // ---------- Preparacao do servidor (etapas gerais) ----------
+
    function desenharEtapas(etapas) {
       etapasAtuais = etapas;
       var lista = el('#wae-etapas');
       if (!lista) { return; }
 
-      var html = '';
-      etapas.forEach(function (etapa, indice) {
+      lista.innerHTML = etapas.map(function (etapa, indice) {
          var estado = ESTADOS[etapa.estado] || ESTADOS.pendente;
-         var botoes = '';
-         (etapa.acoes || []).forEach(function (acao) {
+         var botoes = (etapa.acoes || []).map(function (acao) {
             var def = ACOES[acao];
-            if (!def) { return; }
-            var rotulo = def.rotulo;
-            if (acao === 'dependencias_instalar' && etapa.estado === 'ok') {
-               rotulo = 'Reinstalar';
-            }
-            var classe = (acao === 'dependencias_instalar' && etapa.estado === 'ok') ? 'btn-outline-secondary' : def.classe;
-            botoes += '<button type="button" class="btn btn-sm ' + classe + '" data-wae-acao="' + acao + '"'
-               + (WAE.podeEditar ? '' : ' disabled') + '><i class="' + def.icone + ' me-1"></i>' + rotulo + '</button>';
-         });
+            if (!def) { return ''; }
+            var reinstalar = acao === 'dependencias_instalar' && etapa.estado === 'ok';
+            return '<button type="button" class="btn btn-sm ' + (reinstalar ? 'btn-outline-secondary' : def.classe) + '" data-wae-acao="' + acao + '"' +
+               (WAE.podeEditar ? '' : ' disabled') + '><i class="' + def.icone + ' me-1"></i>' + (reinstalar ? 'Reinstalar' : def.rotulo) + '</button>';
+         }).join('');
 
-         html += '<div class="list-group-item">'
-            + '<div class="row align-items-center g-2">'
-            + '<div class="col-auto"><span class="avatar avatar-sm ' + estado.classe + '"><i class="' + estado.icone + '"></i></span></div>'
-            + '<div class="col">'
-            + '<div class="fw-semibold">' + (indice + 1) + '. ' + escapar(etapa.rotulo)
-            + ' <span class="badge ' + estado.classe + ' ms-1">' + estado.texto + '</span></div>'
-            + '<div class="text-secondary small text-break">' + escapar(etapa.detalhe) + '</div>'
-            + '</div>'
-            + '<div class="col-auto d-flex flex-wrap gap-1">' + botoes + '</div>'
-            + '</div></div>';
-      });
-      lista.innerHTML = html;
+         return '<div class="list-group-item"><div class="row align-items-center g-2">' +
+            '<div class="col-auto"><span class="avatar avatar-sm ' + estado.classe + '"><i class="' + estado.icone + '"></i></span></div>' +
+            '<div class="col"><div class="fw-semibold">' + (indice + 1) + '. ' + escapar(etapa.rotulo) +
+               ' <span class="badge ' + estado.classe + ' ms-1">' + estado.texto + '</span></div>' +
+               '<div class="text-secondary small text-break">' + escapar(etapa.detalhe) + '</div></div>' +
+            '<div class="col-auto d-flex flex-wrap gap-1">' + botoes + '</div>' +
+         '</div></div>';
+      }).join('');
 
       var pronto = etapas.every(function (e) { return e.estado === 'ok' || e.chave === 'webhook'; });
       var badge = el('#wae-badge-geral');
       if (badge) {
          badge.className = 'badge ' + (pronto ? 'bg-green-lt' : 'bg-yellow-lt');
-         badge.textContent = pronto ? 'Tudo pronto' : 'Preparacao pendente';
+         badge.textContent = pronto ? 'Tudo pronto' : 'Preparação pendente';
       }
 
       etapas.forEach(function (etapa) {
-         if (etapa.estado === 'andamento' && etapa.tarefa) {
-            acompanharTarefa(etapa.tarefa);
-         }
+         if (etapa.estado === 'andamento' && etapa.tarefa) { acompanharTarefa(etapa.tarefa); }
       });
    }
 
    function atualizarEtapas(testarWebhook) {
       return pedir('etapas', { webhook: testarWebhook ? 1 : 0 }).then(function (r) {
-         if (r.sucesso) {
-            desenharEtapas(r.etapas || []);
-            atualizarQr();
-         } else {
-            avisar(r.mensagem, true);
-         }
+         if (r.sucesso) { desenharEtapas(r.etapas || []); } else { avisar(r.mensagem, true); }
          return r;
       });
    }
@@ -194,7 +178,7 @@
       var badge = el('#wae-tarefa-estado');
       var def = ESTADOS[estado] || ESTADOS.andamento;
       badge.className = 'badge ' + def.classe;
-      badge.textContent = estado === 'ok' ? 'Concluida' : (estado === 'erro' ? 'Falhou' : 'Em andamento');
+      badge.textContent = estado === 'ok' ? 'Concluída' : (estado === 'erro' ? 'Falhou' : 'Em andamento');
    }
 
    var acompanhando = {};
@@ -202,24 +186,17 @@
    /** Acompanha a tarefa em segundo plano ate terminar. Resolve true se deu certo. */
    function acompanharTarefa(nome) {
       if (acompanhando[nome]) { return acompanhando[nome]; }
-      var titulo = nome === 'node' ? 'Instalacao do Node.js' : 'Instalacao das dependencias';
+      var titulo = nome === 'node' ? 'Instalação do Node.js' : 'Instalação das dependências';
 
       acompanhando[nome] = new Promise(function (resolver) {
          function consultar() {
             pedir('tarefa', { tarefa: nome }).then(function (r) {
-               if (!r.sucesso) {
-                  delete acompanhando[nome];
-                  resolver(false);
-                  return;
-               }
+               if (!r.sucesso) { delete acompanhando[nome]; resolver(false); return; }
                var t = r.tarefa;
                mostrarTarefa(titulo, t.log, t.rodando ? 'andamento' : (t.sucesso ? 'ok' : 'erro'));
-               if (t.rodando) {
-                  setTimeout(consultar, 2000);
-                  return;
-               }
+               if (t.rodando) { setTimeout(consultar, 2000); return; }
                delete acompanhando[nome];
-               avisar(t.sucesso ? titulo + ' concluida.' : titulo + ' falhou. Veja o registro abaixo.', !t.sucesso);
+               avisar(t.sucesso ? titulo + ' concluída.' : titulo + ' falhou. Veja o registro.', !t.sucesso);
                resolver(!!t.sucesso);
             });
          }
@@ -228,26 +205,28 @@
       return acompanhando[nome];
    }
 
-   function executarAcao(acao, semConfirmar) {
+   /** Acao do servidor: gerais (Node, dependencias, vigia, webhook) ou de um numero (conexao informada) */
+   function executarAcao(acao, conexao, semConfirmar) {
       var pergunta = (!semConfirmar && CONFIRMACOES[acao]) ? confirmar(CONFIRMACOES[acao]) : Promise.resolve(true);
 
       return pergunta.then(function (ok) {
          if (!ok) { return false; }
          travar(true);
-         return pedir('acao_servidor', { tipo: acao }, 'POST').then(function (r) {
+         var dados = { tipo: acao };
+         if (conexao) { dados.conexao = conexao; }
+         return pedir('acao_servidor', dados, 'POST').then(function (r) {
             if (!r.sucesso) {
                avisar(r.mensagem, true);
                if (r.log) { mostrarTarefa('Log do servidor', r.log, 'erro'); }
                return false;
             }
-            if (TAREFAS[acao]) {
-               return acompanharTarefa(TAREFAS[acao]);
-            }
+            if (TAREFAS[acao]) { return acompanharTarefa(TAREFAS[acao]); }
             avisar(r.mensagem, false);
             return true;
          }).then(function (resultado) {
             travar(false);
-            return atualizarEtapas(acao === 'webhook_testar').then(function () { return resultado; });
+            var depois = conexao ? atualizarConexoes() : atualizarEtapas(acao === 'webhook_testar');
+            return depois.then(function () { return resultado; });
          });
       });
    }
@@ -259,13 +238,12 @@
       return null;
    }
 
-   /** Executa em sequencia tudo que falta para o servidor ficar pronto */
+   /** Executa em sequencia o que falta e liga o numero padrao */
    function prepararTudo() {
       var passos = [
          { chave: 'node',         acao: 'node_instalar' },
          { chave: 'dependencias', acao: 'dependencias_instalar' },
-         { chave: 'vigia',        acao: 'vigia_ativar' },
-         { chave: 'servico',      acao: 'servico_iniciar' }
+         { chave: 'vigia',        acao: 'vigia_ativar' }
       ];
 
       travar(true);
@@ -276,73 +254,312 @@
             if (continuar === false) { return false; }
             var atual = etapa(passo.chave);
             if (atual && atual.estado === 'ok') { return true; }
-            return executarAcao(passo.acao, true);
+            return executarAcao(passo.acao, 0, true);
          });
+      });
+
+      cadeia = cadeia.then(function (continuar) {
+         if (continuar === false) { return false; }
+         var padrao = conexoesAtuais.filter(function (c) { return c.padrao; })[0] || conexoesAtuais[0];
+         if (!padrao || padrao.ligado) { return true; }
+         return executarAcao('servico_iniciar', padrao.id, true);
       });
 
       return cadeia.then(function (resultado) {
          travar(false);
          return atualizarEtapas(true).then(function () {
             avisar(resultado === false
-               ? 'A preparacao parou em uma etapa. Veja o detalhe na lista.'
-               : 'Servidor preparado. Leia o QR Code para parear o aparelho.', resultado === false);
+               ? 'A preparação parou em uma etapa. Veja o detalhe na lista.'
+               : 'Servidor preparado. Leia o QR Code do número para parear o aparelho.', resultado === false);
          });
       });
    }
 
-   function atualizarQr() {
-      var caixa = el('#wae-qr');
-      if (!caixa) { return; }
-      var servico = etapa('servico');
-      var aparelho = etapa('aparelho');
+   // ---------- Numeros conectados ----------
 
-      if (aparelho && aparelho.estado === 'ok') {
-         caixa.innerHTML = '<div class="empty"><div class="empty-icon"><i class="ti ti-device-mobile-check text-green"></i></div>'
-            + '<p class="empty-title">Aparelho conectado</p><p class="empty-subtitle text-secondary">' + escapar(aparelho.detalhe) + '</p></div>';
+   function situacao(c) {
+      if (c.conectado) { return { classe: 'bg-green', texto: 'Conectado', icone: 'ti ti-device-mobile-check' }; }
+      if (c.ligado && c.tem_qr) { return { classe: 'bg-yellow', texto: 'Aguardando QR Code', icone: 'ti ti-qrcode' }; }
+      if (c.ligado) { return { classe: 'bg-blue', texto: 'Conectando...', icone: 'ti ti-loader-2' }; }
+      if (c.deve_ligado) { return { classe: 'bg-red', texto: 'Não responde', icone: 'ti ti-alert-triangle' }; }
+      return { classe: 'bg-secondary', texto: 'Parado', icone: 'ti ti-player-stop' };
+   }
+
+   function formatarNumero(numero) {
+      var d = String(numero || '').replace(/\D/g, '');
+      if (d.length === 13) { return '+' + d.slice(0, 2) + ' (' + d.slice(2, 4) + ') ' + d.slice(4, 9) + '-' + d.slice(9); }
+      if (d.length === 12) { return '+' + d.slice(0, 2) + ' (' + d.slice(2, 4) + ') ' + d.slice(4, 8) + '-' + d.slice(8); }
+      return d;
+   }
+
+   function htmlConexao(c) {
+      var s = situacao(c);
+      var pode = WAE.podeEditar;
+      var dis = pode ? '' : ' disabled';
+
+      var visual;
+      if (c.conectado) {
+         visual = '<div class="wae-con-visual wae-con-ok"><i class="ti ti-device-mobile-check"></i><span>Aparelho conectado</span></div>';
+      } else if (c.ligado && c.tem_qr) {
+         visual = '<div class="wae-con-visual" data-qr="' + c.id + '">' +
+            (qrCache[c.id] ? '<img src="' + qrCache[c.id] + '" alt="QR Code">' : '<i class="ti ti-loader-2"></i><span>Gerando QR Code...</span>') + '</div>';
+      } else if (c.ligado) {
+         visual = '<div class="wae-con-visual"><i class="ti ti-loader-2"></i><span>Conectando ao WhatsApp...</span></div>';
+      } else {
+         visual = '<div class="wae-con-visual wae-con-parado"><i class="ti ti-qrcode-off"></i><span>' + (c.pareado ? 'Pareado, mas parado' : 'Inicie para ver o QR Code') + '</span></div>';
+      }
+
+      var botoes = c.ligado
+         ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-con-acao="servico_reiniciar"' + dis + '><i class="ti ti-refresh me-1"></i>Reiniciar</button>' +
+           '<button type="button" class="btn btn-sm btn-outline-danger" data-con-acao="servico_parar"' + dis + '><i class="ti ti-player-stop me-1"></i>Parar</button>'
+         : '<button type="button" class="btn btn-sm btn-success" data-con-acao="servico_iniciar"' + dis + '><i class="ti ti-player-play me-1"></i>Iniciar</button>';
+
+      var menu = pode
+         ? '<div class="dropdown"><button type="button" class="btn btn-sm btn-ghost-secondary" data-bs-toggle="dropdown" title="Mais opções"><i class="ti ti-dots-vertical"></i></button>' +
+              '<div class="dropdown-menu dropdown-menu-end">' +
+                 '<a href="#" class="dropdown-item" data-con-editar="renomear"><i class="ti ti-pencil me-2"></i>Renomear</a>' +
+                 (c.padrao ? '' : '<a href="#" class="dropdown-item" data-con-editar="padrao"><i class="ti ti-star me-2"></i>Definir como padrão</a>') +
+                 (c.pareado ? '<a href="#" class="dropdown-item text-danger" data-con-acao="aparelho_desvincular"><i class="ti ti-unlink me-2"></i>Desvincular aparelho</a>' : '') +
+                 (c.padrao ? '' : '<div class="dropdown-divider"></div><a href="#" class="dropdown-item text-danger" data-con-editar="remover"><i class="ti ti-trash me-2"></i>Remover número</a>') +
+              '</div></div>'
+         : '';
+
+      return '<div class="card wae-conexao' + (c.padrao ? ' wae-conexao-padrao' : '') + '">' +
+         '<div class="card-header">' +
+            '<span class="wae-con-ponto ' + s.classe + '" title="' + s.texto + '"></span>' +
+            '<div class="wae-con-titulo">' +
+               '<div class="d-flex align-items-center gap-2"><span class="fw-bold" data-con-nome>' + escapar(c.nome) + '</span>' +
+                  (c.padrao ? '<span class="badge bg-yellow-lt" title="Usado quando o número não é definido por uma conversa: avisos de status e pedidos de aprovação">Padrão</span>' : '') +
+               '</div>' +
+               '<div class="small text-secondary">' + (c.numero ? '<i class="ti ti-brand-whatsapp me-1"></i>' + escapar(formatarNumero(c.numero)) + (c.nome_aparelho ? ' · ' + escapar(c.nome_aparelho) : '') : 'Sem aparelho pareado') + '</div>' +
+            '</div>' +
+            '<span class="badge ' + s.classe + '-lt ms-auto"><i class="' + s.icone + ' me-1"></i>' + s.texto + '</span>' +
+            menu +
+         '</div>' +
+         '<div class="card-body">' +
+            '<div class="wae-con-corpo">' + visual +
+               '<div class="datagrid wae-con-dados">' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Fluxos</div><div class="datagrid-content">' +
+                     c.fluxos_ativos + ' ativo(s) de ' + c.fluxos +
+                     ' · <a href="#" data-abrir-fluxos="' + c.id + '">abrir</a></div></div>' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Hoje</div><div class="datagrid-content">' +
+                     '<span title="Recebidas"><i class="ti ti-arrow-down-left text-green"></i> ' + c.recebidas + '</span> · ' +
+                     '<span title="Enviadas"><i class="ti ti-arrow-up-right text-blue"></i> ' + c.enviadas + '</span>' +
+                     (c.falhas ? ' · <span class="text-danger" title="Falhas de envio"><i class="ti ti-alert-triangle"></i> ' + c.falhas + '</span>' : '') + '</div></div>' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Conectado desde</div><div class="datagrid-content">' + escapar(c.desde || '-') + '</div></div>' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Porta local</div><div class="datagrid-content">' + c.porta + (c.pid ? ' · pid ' + c.pid : '') + '</div></div>' +
+               '</div>' +
+            '</div>' +
+         '</div>' +
+         '<div class="card-footer d-flex flex-wrap align-items-center gap-2">' + botoes +
+            '<button type="button" class="btn btn-sm btn-ghost-secondary ms-auto" data-con-log><i class="ti ti-file-text me-1"></i>Log</button>' +
+         '</div>' +
+      '</div>';
+   }
+
+   function desenharConexoes(lista) {
+      conexoesAtuais = lista;
+      var caixa = el('#wae-conexoes');
+      if (!caixa) { return; }
+      el('#wae-total-conexoes').textContent = lista.length;
+
+      if (!lista.length) {
+         caixa.innerHTML = '<div class="col-12 text-secondary">Nenhum número cadastrado. Clique em "Novo número".</div>';
          return;
       }
-      if (!servico || servico.estado !== 'ok') {
-         caixa.innerHTML = '<div class="empty"><div class="empty-icon"><i class="ti ti-qrcode-off"></i></div>'
-            + '<p class="empty-title">Servico parado</p><p class="empty-subtitle text-secondary">O QR Code aparece quando o servico estiver em execucao.</p></div>';
-         return;
-      }
-      pedir('qrcode').then(function (r) {
-         if (r.sucesso && r.qr) {
-            caixa.innerHTML = '<div class="text-center"><img src="' + r.qr + '" alt="QR Code" class="img-fluid" style="max-width:260px">'
-               + '<p class="text-secondary small mt-2 mb-0">WhatsApp do aparelho: Configuracoes &gt; Aparelhos conectados &gt; Conectar um aparelho.</p></div>';
+
+      var ids = lista.map(function (c) { return String(c.id); });
+
+      // Remove cartoes de conexoes que nao existem mais
+      caixa.querySelectorAll('[data-conexao]').forEach(function (col) {
+         if (ids.indexOf(col.getAttribute('data-conexao')) < 0) { col.remove(); delete desenhoConexao[col.getAttribute('data-conexao')]; }
+      });
+      if (!caixa.querySelector('[data-conexao]')) { caixa.innerHTML = ''; }
+
+      lista.forEach(function (c) {
+         var col = caixa.querySelector('[data-conexao="' + c.id + '"]');
+         if (!col) {
+            col = document.createElement('div');
+            col.className = 'col-xl-6 col-xxl-4';
+            col.setAttribute('data-conexao', c.id);
+            col.innerHTML = '<div data-con-cartao></div><pre class="wae-con-log bg-dark text-light small" hidden></pre>';
+            caixa.appendChild(col);
+         }
+         // So redesenha o cartao que mudou (log aberto e edicao de nome continuam)
+         var assinatura = JSON.stringify(c) + (qrCache[c.id] ? qrCache[c.id].length : 0);
+         if (desenhoConexao[c.id] !== assinatura && !col.querySelector('[data-renomeando]')) {
+            col.querySelector('[data-con-cartao]').innerHTML = htmlConexao(c);
+            desenhoConexao[c.id] = assinatura;
+         }
+         if (c.ligado && c.tem_qr) { buscarQr(c.id); } else { delete qrCache[c.id]; }
+      });
+
+      preencherSeletores(lista);
+   }
+
+   function buscarQr(id) {
+      pedir('qrcode', { conexao: id }).then(function (r) {
+         if (!(r.sucesso && r.qr) || qrCache[id] === r.qr) { return; }
+         qrCache[id] = r.qr;
+         var alvo = el('[data-qr="' + id + '"]');
+         if (alvo) { alvo.innerHTML = '<img src="' + r.qr + '" alt="QR Code">'; }
+      });
+   }
+
+   function atualizarConexoes() {
+      return pedir('conexoes').then(function (r) {
+         if (r.sucesso) { desenharConexoes(r.conexoes || []); }
+         return r;
+      });
+   }
+
+   /** Seletores "qual numero" dos cartoes de teste */
+   function preencherSeletores(lista) {
+      painel.querySelectorAll('.wae-seletor-conexao').forEach(function (sel) {
+         var atual = sel.value;
+         sel.innerHTML = lista.map(function (c) {
+            return '<option value="' + c.id + '">' + escapar(c.nome + (c.numero ? ' (' + formatarNumero(c.numero) + ')' : '')) + '</option>';
+         }).join('');
+         if (atual && lista.some(function (c) { return String(c.id) === atual; })) {
+            sel.value = atual;
          } else {
-            caixa.innerHTML = '<div class="empty"><div class="empty-icon"><i class="ti ti-loader-2"></i></div>'
-               + '<p class="empty-title">Gerando QR Code</p><p class="empty-subtitle text-secondary">Aguarde alguns segundos.</p></div>';
+            var padrao = lista.filter(function (c) { return c.padrao; })[0];
+            if (padrao) { sel.value = padrao.id; }
          }
       });
    }
+
+   function alternarLog(col, id) {
+      var pre = col.querySelector('.wae-con-log');
+      if (!pre.hidden) { pre.hidden = true; return; }
+      pre.hidden = false;
+      pre.textContent = 'Carregando...';
+      pedir('log_servidor', { conexao: id }).then(function (r) {
+         pre.textContent = (r.sucesso && r.conteudo) ? r.conteudo : 'Sem registros ainda.';
+         pre.scrollTop = pre.scrollHeight;
+      });
+   }
+
+   function renomear(col, id) {
+      var nome = col.querySelector('[data-con-nome]');
+      if (!nome || col.querySelector('[data-renomeando]')) { return; }
+      var atual = nome.textContent;
+      nome.outerHTML = '<span class="input-group input-group-sm wae-con-renomear" data-renomeando>' +
+         '<input type="text" class="form-control" value="' + escapar(atual) + '" maxlength="80">' +
+         '<button type="button" class="btn btn-primary" data-renomear-ok><i class="ti ti-check"></i></button>' +
+         '<button type="button" class="btn btn-outline-secondary" data-renomear-cancelar><i class="ti ti-x"></i></button></span>';
+      var campo = col.querySelector('[data-renomeando] input');
+      campo.focus();
+      campo.select();
+   }
+
+   function abrirFluxosDa(id) {
+      try { localStorage.setItem('wae-construtor-conexao', String(id)); } catch (x) { /* sem armazenamento */ }
+      var aba = document.querySelector('a[data-glpi-ajax-content*="PluginWhatsappempresaPainel$5"], a[data-glpi-ajax-content*="PluginWhatsappempresaPainel%245"]');
+      if (aba) { aba.click(); } else { avisar('Abra a aba Fluxos: o número já está selecionado lá.'); }
+   }
+
+   function ligarConexoes() {
+      var abrirNova = el('#wae-nova-conexao-abrir');
+      if (abrirNova) {
+         var caixa = el('#wae-nova-conexao');
+         var nome = el('#wae-nova-conexao-nome');
+         var alternar = function (mostrar) {
+            caixa.classList.toggle('wae-oculto', !mostrar);
+            abrirNova.classList.toggle('wae-oculto', mostrar);
+            if (mostrar) { nome.value = ''; nome.focus(); }
+         };
+         abrirNova.addEventListener('click', function () { alternar(true); });
+         el('#wae-nova-conexao-cancelar').addEventListener('click', function () { alternar(false); });
+         var criar = function () {
+            var botao = el('#wae-nova-conexao-criar');
+            botao.disabled = true;
+            pedir('conexao_criar', { nome: nome.value }, 'POST').then(function (r) {
+               botao.disabled = false;
+               avisar(r.mensagem, !r.sucesso);
+               if (r.sucesso) { alternar(false); atualizarConexoes(); }
+            });
+         };
+         el('#wae-nova-conexao-criar').addEventListener('click', criar);
+         nome.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); criar(); } });
+      }
+
+      el('#wae-conexoes').addEventListener('click', function (ev) {
+         var col = ev.target.closest('[data-conexao]');
+         if (!col) { return; }
+         var id = parseInt(col.getAttribute('data-conexao'), 10);
+
+         var acao = ev.target.closest('[data-con-acao]');
+         if (acao) {
+            ev.preventDefault();
+            if (!ocupado) { executarAcao(acao.getAttribute('data-con-acao'), id, false); }
+            return;
+         }
+
+         if (ev.target.closest('[data-con-log]')) { alternarLog(col, id); return; }
+
+         var abrir = ev.target.closest('[data-abrir-fluxos]');
+         if (abrir) { ev.preventDefault(); abrirFluxosDa(id); return; }
+
+         var editar = ev.target.closest('[data-con-editar]');
+         if (editar) {
+            ev.preventDefault();
+            var tipo = editar.getAttribute('data-con-editar');
+            if (tipo === 'renomear') { renomear(col, id); return; }
+            var conexao = conexoesAtuais.filter(function (c) { return c.id === id; })[0] || {};
+            var pergunta = tipo === 'remover'
+               ? confirmar('Remover o número "' + conexao.nome + '"? O servidor dele será parado, o pareamento apagado e os fluxos dele removidos. Conversas e mensagens ficam no histórico.')
+               : Promise.resolve(true);
+            pergunta.then(function (ok) {
+               if (!ok) { return; }
+               pedir('conexao_editar', { conexao: id, tipo: tipo }, 'POST').then(function (r) {
+                  avisar(r.mensagem, !r.sucesso);
+                  atualizarConexoes();
+               });
+            });
+            return;
+         }
+
+         if (ev.target.closest('[data-renomear-cancelar]')) {
+            delete desenhoConexao[id];
+            col.querySelector('[data-renomeando]').remove();
+            atualizarConexoes();
+            return;
+         }
+         if (ev.target.closest('[data-renomear-ok]')) {
+            var novo = col.querySelector('[data-renomeando] input').value;
+            pedir('conexao_editar', { conexao: id, tipo: 'renomear', nome: novo }, 'POST').then(function (r) {
+               avisar(r.mensagem, !r.sucesso);
+               if (!r.sucesso) { return; }
+               delete desenhoConexao[id];
+               col.querySelector('[data-renomeando]').remove();
+               atualizarConexoes();
+            });
+         }
+      });
+
+      el('#wae-conexoes').addEventListener('keydown', function (ev) {
+         if (ev.key === 'Enter' && ev.target.closest('[data-renomeando]')) {
+            ev.preventDefault();
+            ev.target.closest('[data-renomeando]').querySelector('[data-renomear-ok]').click();
+         }
+      });
+   }
+
+   // ---------- Rede, testes e situacao de um telefone ----------
 
    function desenharDados(seletor, dados) {
       var caixa = el(seletor);
       if (!caixa) { return; }
-      var html = '';
-      Object.keys(dados || {}).forEach(function (chave) {
-         html += '<div class="datagrid-item"><div class="datagrid-title">' + escapar(chave) + '</div>'
-            + '<div class="datagrid-content text-break">' + escapar(dados[chave]) + '</div></div>';
-      });
-      caixa.innerHTML = html;
+      caixa.innerHTML = Object.keys(dados || {}).map(function (chave) {
+         return '<div class="datagrid-item"><div class="datagrid-title">' + escapar(chave) + '</div>' +
+            '<div class="datagrid-content text-break">' + escapar(dados[chave]) + '</div></div>';
+      }).join('');
    }
 
    function atualizarInfo() {
       pedir('painel_info').then(function (r) {
-         if (!r.sucesso) { return; }
-         desenharDados('#wae-info-tempos', r.tempos);
-         desenharDados('#wae-info-rede', r.rede);
-      });
-   }
-
-   function atualizarLog() {
-      pedir('log_servidor').then(function (r) {
-         var log = el('#wae-log');
-         if (log) {
-            log.textContent = (r.sucesso && r.conteudo) ? r.conteudo : 'Sem registros ainda.';
-            log.scrollTop = log.scrollHeight;
-         }
+         if (r.sucesso) { desenharDados('#wae-info-rede', r.rede); }
       });
    }
 
@@ -352,6 +569,7 @@
          enviar.addEventListener('click', function () {
             enviar.disabled = true;
             pedir('enviar_teste', {
+               conexao: el('#wae-teste-conexao').value,
                telefone: el('#wae-teste-telefone').value,
                texto: el('#wae-teste-texto').value
             }, 'POST').then(function (r) {
@@ -364,16 +582,16 @@
       var consultar = el('#wae-consultar-fluxo');
       if (consultar) {
          consultar.addEventListener('click', function () {
-            pedir('fluxo_situacao', { telefone: el('#wae-liberar-telefone').value }).then(function (r) {
+            pedir('fluxo_situacao', { conexao: el('#wae-liberar-conexao').value, telefone: el('#wae-liberar-telefone').value }).then(function (r) {
                var saida = el('#wae-resultado-fluxo');
                if (!r.sucesso) { avisar(r.mensagem, true); return; }
                saida.hidden = false;
-               saida.innerHTML = '<div class="datagrid">'
-                  + '<div class="datagrid-item"><div class="datagrid-title">Fluxo atual</div><div class="datagrid-content">' + escapar(r.fluxo) + '</div></div>'
-                  + '<div class="datagrid-item"><div class="datagrid-title">Etapa</div><div class="datagrid-content">' + escapar(r.etapa) + '</div></div>'
-                  + '<div class="datagrid-item"><div class="datagrid-title">Conversa aberta</div><div class="datagrid-content">' + (r.aberta ? '#' + r.aberta : 'nenhuma') + '</div></div>'
-                  + '<div class="datagrid-item"><div class="datagrid-title">Chamado</div><div class="datagrid-content">' + (r.tickets_id ? '#' + r.tickets_id : '-') + '</div></div>'
-                  + '</div>';
+               saida.innerHTML = '<div class="datagrid">' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Fluxo atual</div><div class="datagrid-content">' + escapar(r.fluxo) + '</div></div>' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Etapa</div><div class="datagrid-content">' + escapar(r.etapa) + '</div></div>' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Conversa aberta</div><div class="datagrid-content">' + (r.aberta ? '#' + r.aberta : 'nenhuma') + '</div></div>' +
+                  '<div class="datagrid-item"><div class="datagrid-title">Chamado</div><div class="datagrid-content">' + (r.tickets_id ? '#' + r.tickets_id : '-') + '</div></div>' +
+                  '</div>';
             });
          });
       }
@@ -381,9 +599,9 @@
       var liberar = el('#wae-liberar-numero');
       if (liberar) {
          liberar.addEventListener('click', function () {
-            confirmar('Liberar este numero? A conversa aberta sera encerrada e ele volta ao atendimento automatico.').then(function (ok) {
+            confirmar('Liberar este telefone? A conversa aberta nele será encerrada e ele volta ao atendimento automático.').then(function (ok) {
                if (!ok) { return; }
-               pedir('fluxo_liberar', { telefone: el('#wae-liberar-telefone').value }, 'POST').then(function (r) {
+               pedir('fluxo_liberar', { conexao: el('#wae-liberar-conexao').value, telefone: el('#wae-liberar-telefone').value }, 'POST').then(function (r) {
                   avisar(r.mensagem, !r.sucesso);
                });
             });
@@ -396,40 +614,35 @@
       painel = document.getElementById(id);
       if (!painel) { return; }
       WAE.podeEditar = painel.getAttribute('data-edita') === '1';
+      desenhoConexao = {};
 
       painel.addEventListener('click', function (evento) {
          var botao = evento.target.closest('[data-wae-acao]');
-         if (botao && !ocupado) {
-            executarAcao(botao.getAttribute('data-wae-acao'), false);
-         }
+         if (botao && !ocupado) { executarAcao(botao.getAttribute('data-wae-acao'), 0, false); }
       });
 
       var preparar = el('#wae-preparar');
       if (preparar) {
          preparar.disabled = !WAE.podeEditar;
-         preparar.addEventListener('click', function () {
-            if (!ocupado) { prepararTudo(); }
-         });
+         preparar.addEventListener('click', function () { if (!ocupado) { prepararTudo(); } });
       }
 
-      var atualizar = el('#wae-atualizar-log');
-      if (atualizar) { atualizar.addEventListener('click', atualizarLog); }
-
+      ligarConexoes();
       ligarTestes();
       atualizarEtapas(false);
+      atualizarConexoes();
       atualizarInfo();
-      atualizarLog();
 
-      // Enquanto a aba estiver na tela: QR e situacao se atualizam sozinhos
-      clearInterval(timerQr);
+      // Enquanto a aba estiver na tela: numeros e QR a cada 5 s, etapas a cada 30 s
+      clearInterval(timerConexoes);
       clearInterval(timerEtapas);
-      timerQr = setInterval(function () {
-         if (!document.body.contains(painel)) { clearInterval(timerQr); return; }
-         if (!ocupado) { atualizarQr(); }
-      }, 8000);
+      timerConexoes = setInterval(function () {
+         if (!document.body.contains(painel)) { clearInterval(timerConexoes); return; }
+         if (!ocupado && !document.hidden) { atualizarConexoes(); }
+      }, 5000);
       timerEtapas = setInterval(function () {
          if (!document.body.contains(painel)) { clearInterval(timerEtapas); return; }
-         if (!ocupado) { atualizarEtapas(false); atualizarInfo(); }
+         if (!ocupado && !document.hidden) { atualizarEtapas(false); }
       }, 30000);
    }
 
@@ -455,6 +668,8 @@
       return d || '-';
    }
 
+   var historicoVariasConexoes = false;
+
    function linhaHistorico(m, nova) {
       var e = escapar;
       var entrada = m.direcao === 'entrada';
@@ -467,6 +682,7 @@
 
       return '<tr class="' + (nova ? 'wae-hist-nova' : '') + '" data-id="' + m.id + '">' +
          '<td class="text-nowrap small">' + e(m.data) + '</td>' +
+         (historicoVariasConexoes ? '<td><span class="badge bg-secondary-lt text-nowrap"><i class="ti ti-device-mobile me-1"></i>' + e(m.conexao || '') + '</span></td>' : '') +
          '<td>' + (entrada
             ? '<span class="badge bg-green-lt" title="Recebida"><i class="ti ti-arrow-down-left"></i></span>'
             : '<span class="badge bg-blue-lt" title="Enviada"><i class="ti ti-arrow-up-right"></i></span>') + '</td>' +
@@ -487,6 +703,7 @@
       var caixa = document.getElementById(id);
       if (!caixa || caixa.getAttribute('data-iniciado')) { return; }
       caixa.setAttribute('data-iniciado', '1');
+      historicoVariasConexoes = caixa.getAttribute('data-varias-conexoes') === '1';
 
       var corpo = document.getElementById('wae-hist-linhas');
       var maiorId = 0;
@@ -501,7 +718,8 @@
             busca: document.getElementById('wae-hist-busca').value.trim(),
             direcao: document.getElementById('wae-hist-direcao').value,
             tipo: document.getElementById('wae-hist-tipo').value,
-            com_chamado: document.getElementById('wae-hist-chamado').checked ? 1 : 0
+            com_chamado: document.getElementById('wae-hist-chamado').checked ? 1 : 0,
+            filtro_conexao: document.getElementById('wae-hist-conexao') ? document.getElementById('wae-hist-conexao').value : 0
          }, extra || {});
       }
 
@@ -519,7 +737,7 @@
             total = itens.length;
             corpo.innerHTML = itens.length
                ? itens.map(function (m) { return linhaHistorico(m, false); }).join('')
-               : '<tr><td colspan="8" class="text-center text-secondary py-4">Nenhuma mensagem encontrada.</td></tr>';
+               : '<tr><td colspan="' + (historicoVariasConexoes ? 9 : 8) + '" class="text-center text-secondary py-4">Nenhuma mensagem encontrada.</td></tr>';
             document.getElementById('wae-hist-mais').disabled = itens.length < 100;
             contar();
          });
@@ -575,8 +793,9 @@
          clearTimeout(espera);
          espera = setTimeout(recarregar, 350);
       });
-      ['wae-hist-direcao', 'wae-hist-tipo', 'wae-hist-chamado'].forEach(function (campo) {
-         document.getElementById(campo).addEventListener('change', recarregar);
+      ['wae-hist-conexao', 'wae-hist-direcao', 'wae-hist-tipo', 'wae-hist-chamado'].forEach(function (campo) {
+         var alvo = document.getElementById(campo);
+         if (alvo) { alvo.addEventListener('change', recarregar); }
       });
       document.getElementById('wae-hist-pausar').addEventListener('click', function () { definirPausa(!pausado); });
       document.getElementById('wae-hist-mais').addEventListener('click', maisAntigas);

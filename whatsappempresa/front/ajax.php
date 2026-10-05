@@ -21,6 +21,11 @@ Session::checkLoginUser();
 
 $acao = (string)($_REQUEST['acao'] ?? '');
 
+// Numero (conexao) com que a tela esta trabalhando: servidor, QR, log, fluxos, testes
+if (isset($_REQUEST['conexao']) && (int)$_REQUEST['conexao'] > 0) {
+   PluginWhatsappempresaConexao::usar((int)$_REQUEST['conexao']);
+}
+
 // Consultas (GET) so leem: liberar a trava da sessao evita que o polling
 // enfileire as outras requisicoes do mesmo navegador e atrase as mensagens
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && session_status() === PHP_SESSION_ACTIVE) {
@@ -130,6 +135,52 @@ switch ($acao) {
          'etapas'  => PluginWhatsappempresaServidor::etapas((string)($_REQUEST['webhook'] ?? '0') === '1')
       ]);
 
+   case 'conexoes':
+      // Cartoes da aba Servidor: situacao de cada numero conectado
+      wae_exigir_admin();
+      wae_responder(['sucesso' => true, 'conexoes' => PluginWhatsappempresaServidor::resumoConexoes()]);
+
+   case 'conexao_criar':
+      wae_exigir_admin_escrita();
+      $id = PluginWhatsappempresaConexao::criar((string)($_POST['nome'] ?? ''));
+      if (is_string($id)) {
+         wae_responder(['sucesso' => false, 'mensagem' => $id]);
+      }
+      PluginWhatsappempresaConexao::usar($id);
+      $mensagem = 'Conexao criada.';
+      // Com o Node e as dependencias prontos, ja inicia para mostrar o QR Code
+      if (PluginWhatsappempresaServidor::nodeValido() && PluginWhatsappempresaServidor::situacaoDependencias()['completo']) {
+         $erro = PluginWhatsappempresaServidor::iniciar();
+         $mensagem = $erro === null ? 'Conexao criada e iniciada: leia o QR Code com o novo aparelho.' : 'Conexao criada, mas nao iniciou: ' . $erro;
+      } else {
+         $mensagem .= ' Conclua a preparacao do servidor (Node.js e dependencias) e inicie-a.';
+      }
+      PluginWhatsappempresaLog::registrar('Conexao de WhatsApp criada', PluginWhatsappempresaConexao::nome($id) . ' por ' . wae_usuario(), 'info', 'painel', (int)Session::getLoginUserID());
+      wae_responder(['sucesso' => true, 'mensagem' => $mensagem, 'id' => $id]);
+
+   case 'conexao_editar':
+      wae_exigir_admin_escrita();
+      $id = (int)($_POST['conexao'] ?? 0);
+      if (PluginWhatsappempresaConexao::porId($id) === null) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Conexao nao encontrada.']);
+      }
+      switch ((string)($_POST['tipo'] ?? '')) {
+         case 'renomear':
+            $erro = PluginWhatsappempresaConexao::renomear($id, (string)($_POST['nome'] ?? ''));
+            wae_responder(['sucesso' => $erro === null, 'mensagem' => $erro ?? 'Nome alterado.']);
+         case 'padrao':
+            PluginWhatsappempresaConexao::definirPadrao($id);
+            wae_responder(['sucesso' => true, 'mensagem' => PluginWhatsappempresaConexao::nome($id) . ' agora e a conexao padrao.']);
+         case 'remover':
+            $nome = PluginWhatsappempresaConexao::nome($id);
+            $erro = PluginWhatsappempresaConexao::remover($id);
+            if ($erro === null) {
+               PluginWhatsappempresaLog::registrar('Conexao de WhatsApp removida', $nome . ' por ' . wae_usuario(), 'aviso', 'painel', (int)Session::getLoginUserID());
+            }
+            wae_responder(['sucesso' => $erro === null, 'mensagem' => $erro ?? 'Conexao removida.']);
+      }
+      wae_responder(['sucesso' => false, 'mensagem' => 'Acao desconhecida.']);
+
    case 'acao_servidor':
       wae_exigir_admin_escrita();
       @set_time_limit(120);
@@ -141,7 +192,7 @@ switch ($acao) {
          case 'node_atualizar':
             $erro = PluginWhatsappempresaServidor::instalarNode();
             if ($erro === null) {
-               PluginWhatsappempresaConfig::set('reiniciar_apos_node', PluginWhatsappempresaServidor::deveEstarLigado() ? '1' : '0');
+               PluginWhatsappempresaConfig::set('reiniciar_apos_node', '1');
                PluginWhatsappempresaLog::registrar('Instalacao do Node.js iniciada', wae_usuario(), 'info', 'painel', $usuario);
             }
             wae_responder(['sucesso' => $erro === null, 'mensagem' => $erro ?? 'Download do Node.js iniciado.']);
@@ -209,7 +260,7 @@ switch ($acao) {
                PluginWhatsappempresaServidor::iniciar();
                PluginWhatsappempresaServidor::aguardar(15, true);
             } else {
-               PluginWhatsappempresaConfig::set('numero_host', '');
+               PluginWhatsappempresaConexao::gravarNumero(PluginWhatsappempresaConexao::atual(), '');
             }
             PluginWhatsappempresaLog::registrar('Aparelho do WhatsApp desvinculado', wae_usuario(), 'aviso', 'painel', $usuario);
             wae_responder(['sucesso' => true, 'mensagem' => 'Aparelho desvinculado. Leia o novo QR Code.']);
@@ -231,8 +282,15 @@ switch ($acao) {
       }
       if ($situacao['sucesso'] && $nome === 'node' && PluginWhatsappempresaConfig::ativo('reiniciar_apos_node')) {
          PluginWhatsappempresaConfig::set('reiniciar_apos_node', '0');
-         PluginWhatsappempresaServidor::parar();
-         PluginWhatsappempresaServidor::iniciar();
+         // Node novo: reinicia todos os numeros que estavam ligados
+         foreach (PluginWhatsappempresaConexao::listar() as $conexao) {
+            $anterior = PluginWhatsappempresaConexao::usar((int)$conexao['id']);
+            if (PluginWhatsappempresaServidor::deveEstarLigado()) {
+               PluginWhatsappempresaServidor::parar();
+               PluginWhatsappempresaServidor::iniciar();
+            }
+            PluginWhatsappempresaConexao::restaurar($anterior);
+         }
       }
 
       wae_responder(['sucesso' => true, 'tarefa' => $situacao]);
@@ -260,7 +318,7 @@ switch ($acao) {
       $resultado = PluginWhatsappempresaMensagem::enviar(
          (string)($_POST['telefone'] ?? ''),
          $texto !== '' ? $texto : 'Mensagem de teste do WhatsApp Empresa.',
-         ['fluxo' => 'teste', 'users_id' => (int)Session::getLoginUserID()]
+         ['fluxo' => 'teste', 'users_id' => (int)Session::getLoginUserID(), 'conexoes_id' => PluginWhatsappempresaConexao::atual()]
       );
       wae_responder([
          'sucesso'  => $resultado['ok'],
@@ -283,10 +341,14 @@ switch ($acao) {
       $mensagens = [];
       $resumo    = [];
 
+      $variasConexoes = count(PluginWhatsappempresaConexao::listar()) > 1;
       foreach ($conversas as $conversa) {
          PluginWhatsappempresaConversa::marcarLida((int)$conversa['id']);
 
+         // A sessao do telefone e a do numero (conexao) desta conversa
+         $conexaoAnterior = PluginWhatsappempresaConexao::usar((int)($conversa['conexoes_id'] ?? 1));
          $sessao = PluginWhatsappempresaFluxo::obterSessao((string)$conversa['telefone']);
+         PluginWhatsappempresaConexao::restaurar($conexaoAnterior);
          $presa  = (PluginWhatsappempresaFluxo::fluxoAtual($sessao) === PluginWhatsappempresaFluxo::FLUXO_CONVERSA)
                    && ((int)$sessao['conversas_id'] === (int)$conversa['id']);
 
@@ -297,7 +359,9 @@ switch ($acao) {
             'status'   => $conversa['status'],
             'origem'   => $conversa['origem'],
             'presa'    => $presa,
-            'motivo'   => (string)($conversa['motivo_encerramento'] ?? '')
+            'motivo'   => (string)($conversa['motivo_encerramento'] ?? ''),
+            'conexoes_id' => (int)($conversa['conexoes_id'] ?? 1),
+            'conexao'  => $variasConexoes ? PluginWhatsappempresaConexao::rotulo((int)($conversa['conexoes_id'] ?? 1)) : ''
          ];
 
          foreach (PluginWhatsappempresaConversa::listarMensagens((int)$conversa['id']) as $mensagem) {
@@ -313,7 +377,9 @@ switch ($acao) {
          'marca'      => wae_marca_ticket($tickets_id),
          'requerente' => PluginWhatsappempresaConversa::requerenteDoTicket($tickets_id),
          'conversas'  => $resumo,
-         'mensagens'  => $mensagens
+         'mensagens'  => $mensagens,
+         // Numeros disponiveis para enviar (seletor "Enviar por" quando houver mais de um)
+         'conexoes'   => PluginWhatsappempresaConexao::opcoes()
       ]);
 
    case 'conversa_encerrar':
@@ -369,7 +435,7 @@ switch ($acao) {
          }
       }
 
-      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $texto, $tickets_id, $nome, null, wae_mensagem_citada());
+      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $texto, $tickets_id, $nome, null, wae_mensagem_citada(), (int)($_POST['enviar_por'] ?? 0));
 
       wae_responder([
          'sucesso'  => $resultado['ok'],
@@ -399,7 +465,7 @@ switch ($acao) {
          wae_responder(['sucesso' => false, 'mensagem' => $midia]);
       }
 
-      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $legenda, $tickets_id, $nome, $midia, wae_mensagem_citada());
+      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $legenda, $tickets_id, $nome, $midia, wae_mensagem_citada(), (int)($_POST['enviar_por'] ?? 0));
 
       wae_responder([
          'sucesso'  => $resultado['ok'],
@@ -415,7 +481,8 @@ switch ($acao) {
          'direcao'     => (string)($_GET['direcao'] ?? ''),
          'tipo'        => (string)($_GET['tipo'] ?? ''),
          'busca'       => (string)($_GET['busca'] ?? ''),
-         'com_chamado' => !empty($_GET['com_chamado'])
+         'com_chamado' => !empty($_GET['com_chamado']),
+         'conexao'     => (int)($_GET['filtro_conexao'] ?? 0)
       ], (int)($_GET['depois'] ?? 0), (int)($_GET['antes'] ?? 0), max(10, min(200, (int)($_GET['limite'] ?? 100))));
       wae_responder(['sucesso' => true] + $resultado + ['tipos' => PluginWhatsappempresaMensagem::TIPOS_HISTORICO]);
 
@@ -430,6 +497,8 @@ switch ($acao) {
       if ($linha === null || empty($linha['wa_id']) || !PluginWhatsappempresaConversa::podeVerConversa((int)$linha['conversas_id'])) {
          wae_responder(['sucesso' => false, 'mensagem' => 'Esta mensagem nao pode receber reacao.']);
       }
+      // A reacao sai pelo mesmo numero que trocou a mensagem
+      PluginWhatsappempresaConexao::usar((int)($linha['conexoes_id'] ?? 1));
       $envio = PluginWhatsappempresaServidor::reagir((string)$linha['telefone'], (string)$linha['wa_id'], $linha['direcao'] === 'saida', $emoji);
       if (!$envio['ok']) {
          wae_responder(['sucesso' => false, 'mensagem' => (string)$envio['erro']]);
@@ -715,6 +784,7 @@ switch ($acao) {
             'gatilho'   => (string)$fluxo['gatilho'],
             'palavras'  => (string)$fluxo['palavras'],
             'is_ativo'  => (int)$fluxo['is_ativo'],
+            'conexoes_id' => (int)$fluxo['conexoes_id'],
             'nos'       => $fluxo['nos'],
             'arestas'   => $fluxo['arestas'],
             'date_mod'  => Html::convDateTime($fluxo['date_mod'])
@@ -726,6 +796,7 @@ switch ($acao) {
       wae_exigir_admin_escrita();
       $nome = trim((string)($_POST['nome'] ?? '')) ?: 'Novo fluxo';
       $id = PluginWhatsappempresaConstrutor::salvar([
+         'conexoes_id' => PluginWhatsappempresaConexao::atual(),
          'nome'     => $nome,
          'gatilho'  => 'menu',
          'is_ativo' => 0,
@@ -772,11 +843,16 @@ switch ($acao) {
 
    case 'fluxo_duplicar':
       wae_exigir_admin_escrita();
-      $novo = PluginWhatsappempresaConstrutor::duplicar((int)($_POST['id'] ?? 0));
+      $novo = PluginWhatsappempresaConstrutor::duplicar((int)($_POST['id'] ?? 0), (int)($_POST['destino'] ?? 0));
       if ($novo <= 0) {
          wae_responder(['sucesso' => false, 'mensagem' => 'Nao foi possivel duplicar o fluxo.']);
       }
-      wae_responder(['sucesso' => true, 'mensagem' => 'Copia criada como inativa.', 'id' => $novo]);
+      $destino = (int)($_POST['destino'] ?? 0);
+      wae_responder([
+         'sucesso'  => true,
+         'mensagem' => $destino > 0 ? 'Fluxo copiado para ' . PluginWhatsappempresaConexao::nome($destino) . ' (inativo).' : 'Copia criada como inativa.',
+         'id'       => $novo
+      ]);
 
    case 'fluxos_reordenar':
       wae_exigir_admin_escrita();

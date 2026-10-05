@@ -331,6 +331,9 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
       if (in_array((string)($filtros['direcao'] ?? ''), ['entrada', 'saida'], true)) {
          $where['direcao'] = (string)$filtros['direcao'];
       }
+      if ((int)($filtros['conexao'] ?? 0) > 0) {
+         $where['conexoes_id'] = (int)$filtros['conexao'];
+      }
       if (!empty($filtros['com_chamado'])) {
          $where[] = ['tickets_id' => ['>', 0]];
       }
@@ -411,6 +414,7 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
             'de_nome'   => $entrada ? $pessoa['nome'] : $autor,
             'para'      => $entrada ? $servidor : $cliente,
             'para_nome' => $entrada ? 'WhatsApp da empresa' : $pessoa['nome'],
+            'conexao'   => PluginWhatsappempresaConexao::nome((int)($linha['conexoes_id'] ?? 1)),
             'tipo'      => $tipo,
             'tipo_nome' => self::TIPOS_HISTORICO[$tipo],
             'detalhe'   => $detalhe,
@@ -471,6 +475,7 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
       }
 
       $DB->insert('glpi_plugin_whatsappempresa_mensagens', [
+         'conexoes_id'    => PluginWhatsappempresaConexao::atual(),
          'wa_id'          => $wa_id !== '' ? mb_substr($wa_id, 0, 80) : null,
          'citada_id'      => $citada_id,
          'citada_texto'   => $citadaTexto !== '' ? mb_substr($citadaTexto, 0, 500) : null,
@@ -501,6 +506,24 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
     * Envia pelo WhatsApp e ja grava o historico
     */
    static function enviar(string $telefone, $conteudo, array $contexto = []): array {
+      // Numero (conexao) que envia: informado, o da conversa, o em uso na requisicao ou o do ultimo contato do telefone
+      $conexao = (int)($contexto['conexoes_id'] ?? 0);
+      if ($conexao <= 0 && (int)($contexto['conversas_id'] ?? 0) > 0) {
+         $conexao = (int)(PluginWhatsappempresaConversa::porId((int)$contexto['conversas_id'])['conexoes_id'] ?? 0);
+      }
+      if ($conexao <= 0) {
+         $conexao = PluginWhatsappempresaConexao::definida() ? PluginWhatsappempresaConexao::atual() : PluginWhatsappempresaConexao::paraTelefone($telefone);
+      }
+
+      $anterior = PluginWhatsappempresaConexao::usar($conexao);
+      try {
+         return self::enviarNaConexao($telefone, $conteudo, $contexto);
+      } finally {
+         PluginWhatsappempresaConexao::restaurar($anterior);
+      }
+   }
+
+   private static function enviarNaConexao(string $telefone, $conteudo, array $contexto): array {
       $midia  = $contexto['midia'] ?? null;
 
       // Resposta citando uma mensagem da conversa (linha gravada da mensagem citada)
