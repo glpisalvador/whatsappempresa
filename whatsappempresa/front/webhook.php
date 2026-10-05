@@ -63,6 +63,25 @@ if ($oficial === '' || !hash_equals($oficial, (string)$token)) {
    $texto    = (string)($corpo['texto'] ?? '');
    $jid      = (string)($corpo['jid'] ?? '');
 
+   // Imagem ou audio baixado pelo Node para a pasta de midia do plugin
+   $midia = null;
+   if (!empty($corpo['midia']) && is_array($corpo['midia'])) {
+      $tipo    = (string)($corpo['midia']['tipo'] ?? '');
+      $arquivo = (string)($corpo['midia']['arquivo'] ?? '');
+      if (in_array($tipo, ['imagem', 'audio'], true) && PluginWhatsappempresaServidor::caminhoMidia($arquivo) !== null) {
+         $midia = [
+            'tipo'    => $tipo,
+            'arquivo' => $arquivo,
+            'mime'    => mb_substr((string)($corpo['midia']['mime'] ?? ''), 0, 100)
+         ];
+         // Os fluxos trabalham com texto: sem legenda, entra o rotulo da midia
+         if (trim($texto) === '') {
+            $texto = PluginWhatsappempresaMensagem::rotuloDaMidia($tipo);
+         }
+      }
+   }
+   PluginWhatsappempresaMensagem::definirMidiaRecebida($midia);
+
    if ($telefone !== '' && $texto !== '') {
       $detalhado = PluginWhatsappempresaConfig::ativo('log_detalhado');
 
@@ -163,5 +182,7 @@ if ($oficial === '' || !hash_equals($oficial, (string)$token)) {
       }
    }
 }
+
+PluginWhatsappempresaMensagem::definirMidiaRecebida(null);
 
 echo json_encode($resposta_json, JSON_UNESCAPED_UNICODE);

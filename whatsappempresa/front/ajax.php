@@ -349,6 +349,68 @@ switch ($acao) {
          'mensagem' => $resultado['ok'] ? 'Mensagem enviada.' : (string)$resultado['erro']
       ]);
 
+   case 'conversa_enviar_midia':
+      $tickets_id = (int)($_POST['tickets_id'] ?? 0);
+      $telefone   = (string)($_POST['telefone'] ?? '');
+      $legenda    = trim((string)($_POST['texto'] ?? ''));
+      $nome       = (string)($_POST['nome'] ?? '');
+      $tipo       = (string)($_POST['tipo'] ?? '') === 'audio' ? 'audio' : 'imagem';
+
+      if ($telefone === '' || empty($_FILES['arquivo'])) {
+         wae_responder(['sucesso' => false, 'mensagem' => 'Informe o numero e o arquivo.']);
+      }
+
+      if ($tickets_id > 0) {
+         $ticket = new Ticket();
+         if (!$ticket->getFromDB($tickets_id) || !$ticket->canViewItem()) {
+            wae_responder(['sucesso' => false, 'mensagem' => 'Sem permissao para este chamado.']);
+         }
+      }
+
+      $midia = PluginWhatsappempresaConversa::salvarUpload($_FILES['arquivo'], $tipo);
+      if (is_string($midia)) {
+         wae_responder(['sucesso' => false, 'mensagem' => $midia]);
+      }
+
+      $resultado = PluginWhatsappempresaConversa::enviarDoTecnico($telefone, $legenda, $tickets_id, $nome, $midia);
+
+      wae_responder([
+         'sucesso'  => $resultado['ok'],
+         'mensagem' => $resultado['ok']
+            ? ($tipo === 'audio' ? 'Audio enviado.' : 'Imagem enviada.')
+            : (string)$resultado['erro']
+      ]);
+
+   case 'midia':
+      // Arquivo de imagem ou audio de uma mensagem, conferindo quem pode ver a conversa
+      $mensagens_id = (int)($_GET['id'] ?? 0);
+      $linha = null;
+      foreach ($DB->request([
+         'FROM'  => 'glpi_plugin_whatsappempresa_mensagens',
+         'WHERE' => ['id' => $mensagens_id],
+         'LIMIT' => 1
+      ]) as $registro) {
+         $linha = $registro;
+      }
+
+      $caminho = $linha !== null ? PluginWhatsappempresaServidor::caminhoMidia((string)$linha['midia_arquivo']) : null;
+      if ($caminho === null || !PluginWhatsappempresaConversa::podeVerConversa((int)$linha['conversas_id'])) {
+         http_response_code(404);
+         header('Content-Type: text/plain; charset=utf-8');
+         echo 'Arquivo nao encontrado.';
+         exit;
+      }
+
+      $mime = (string)($linha['midia_mime'] ?: 'application/octet-stream');
+      $mime = explode(';', $mime)[0];
+      header('Content-Type: ' . $mime);
+      header('Content-Length: ' . filesize($caminho));
+      header('Content-Disposition: inline; filename="' . basename($caminho) . '"');
+      header('Cache-Control: private, max-age=86400');
+      header('X-Content-Type-Options: nosniff');
+      readfile($caminho);
+      exit;
+
    case 'buscar_destinos':
       $termo = trim((string)($_REQUEST['termo'] ?? ''));
       if (mb_strlen($termo) < 2) {

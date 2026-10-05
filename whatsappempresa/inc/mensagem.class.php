@@ -163,6 +163,35 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
       return 'automacao';
    }
 
+   // Texto usado no lugar da legenda quando a midia chega sem ela (os fluxos precisam de texto)
+   const ROTULO_IMAGEM = '📷 Imagem';
+   const ROTULO_AUDIO  = '🎤 Áudio';
+
+   /**
+    * Midia da mensagem recebida que esta sendo processada pelo webhook.
+    * A primeira mensagem de entrada gravada durante o processamento fica com ela.
+    */
+   private static ?array $midiaRecebida = null;
+
+   static function definirMidiaRecebida(?array $midia): void {
+      self::$midiaRecebida = $midia;
+   }
+
+   static function rotuloDaMidia(string $tipo): string {
+      return $tipo === 'audio' ? self::ROTULO_AUDIO : self::ROTULO_IMAGEM;
+   }
+
+   /**
+    * Legenda real da midia (vazia quando o conteudo e so o rotulo automatico)
+    */
+   static function legenda(array $linha): string {
+      $texto = (string)($linha['conteudo'] ?? '');
+      if (!empty($linha['tipo_midia']) && in_array($texto, [self::ROTULO_IMAGEM, self::ROTULO_AUDIO], true)) {
+         return '';
+      }
+      return $texto;
+   }
+
    /**
     * Grava a mensagem na tabela de historico
     */
@@ -174,7 +203,16 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
       $direcao = (string)($dados['direcao'] ?? 'entrada');
       $entrada = ($direcao === 'entrada');
 
+      $midia = $dados['midia'] ?? null;
+      if ($midia === null && $entrada && self::$midiaRecebida !== null) {
+         $midia = self::$midiaRecebida;
+         self::$midiaRecebida = null;
+      }
+
       $DB->insert('glpi_plugin_whatsappempresa_mensagens', [
+         'tipo_midia'     => $midia !== null ? mb_substr((string)$midia['tipo'], 0, 10) : null,
+         'midia_arquivo'  => $midia !== null ? mb_substr((string)$midia['arquivo'], 0, 255) : null,
+         'midia_mime'     => $midia !== null ? mb_substr((string)$midia['mime'], 0, 100) : null,
          'conversas_id'   => (int)($dados['conversas_id'] ?? 0),
          'telefone'       => $cliente,
          'numero_host'    => $host !== '' ? $host : null,
@@ -199,9 +237,22 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
     * Envia pelo WhatsApp e ja grava o historico
     */
    static function enviar(string $telefone, $conteudo, array $contexto = []): array {
-      $resultado = PluginWhatsappempresaServidor::enviarTexto($telefone, $conteudo);
+      $midia     = $contexto['midia'] ?? null;
+      $resultado = PluginWhatsappempresaServidor::enviarTexto($telefone, $conteudo, $midia);
+
+      // Audio gravado no navegador (WebM) e convertido para OGG pelo servidor: guarda a versao convertida
+      if ($midia !== null && !empty($resultado['convertido']['arquivo'])
+          && PluginWhatsappempresaServidor::caminhoMidia((string)$resultado['convertido']['arquivo']) !== null) {
+         $midia['arquivo'] = (string)$resultado['convertido']['arquivo'];
+         $midia['mime']    = (string)($resultado['convertido']['mime'] ?? $midia['mime']);
+      }
+
+      if ($midia !== null && trim(is_array($conteudo) ? (string)($conteudo['texto'] ?? '') : (string)$conteudo) === '') {
+         $conteudo = self::rotuloDaMidia((string)$midia['tipo']);
+      }
 
       self::registrar([
+         'midia'        => $midia,
          'conversas_id' => $contexto['conversas_id'] ?? 0,
          'telefone'     => $telefone,
          'direcao'      => 'saida',
