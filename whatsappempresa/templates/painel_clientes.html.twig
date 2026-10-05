@@ -1,0 +1,68 @@
+{# Aba Clientes: entidades atendidas no autoatendimento, seus codigos de acesso e contatos #}
+<div class="wae-clientes" id="wae-clientes" data-edita="{{ canedit ? 1 : 0 }}">
+
+   {% if not exige_codigo %}
+      <div class="alert alert-info d-flex align-items-center gap-2">
+         <i class="ti ti-info-circle fs-2"></i>
+         <div>
+            O pedido de código está <strong>desligado</strong> na aba Regras: os códigos abaixo ficam guardados, mas
+            só passam a ser pedidos quando "Exigir código de acesso" for ativado. Os contatos continuam sendo
+            reconhecidos pelo telefone.
+         </div>
+      </div>
+   {% endif %}
+
+   {% if canedit %}
+   <div class="card mb-3">
+      <div class="card-header">
+         <h3 class="card-title"><i class="ti ti-building-plus me-2"></i>Novo cliente</h3>
+      </div>
+      <div class="card-body">
+         <div class="row g-3 align-items-end" id="wae-cli-novo">
+            <div class="col-lg-5">
+               <label class="form-label">Entidade do cliente</label>
+               {{ campo_entidade|raw }}
+            </div>
+            <div class="col-lg-5">
+               <label class="form-label">Requerente padrão dos chamados</label>
+               {{ campo_requerente|raw }}
+            </div>
+            <div class="col-lg-2">
+               <button type="button" class="btn btn-primary w-100" id="wae-cli-adicionar">
+                  <i class="ti ti-plus me-1"></i>Adicionar
+               </button>
+            </div>
+         </div>
+         <p class="text-muted small mt-3 mb-0">
+            <i class="ti ti-info-circle me-1"></i>
+            O cliente recebe um código gerado na hora. Quem envia o código e está na lista de contatos do cliente
+            é atendido mesmo sem usuário no GLPI: os registros abertos ficam na entidade do cliente, em nome do
+            requerente padrão, com o nome e o telefone do contato na descrição.
+         </p>
+      </div>
+   </div>
+   {% endif %}
+
+   <div class="card">
+      <div class="card-header">
+         <h3 class="card-title"><i class="ti ti-building me-2"></i>Clientes cadastrados</h3>
+         <div class="card-actions d-flex align-items-center gap-2">
+            <div class="input-icon">
+               <span class="input-icon-addon"><i class="ti ti-search"></i></span>
+               <input type="search" class="form-control form-control-sm" id="wae-cli-busca" placeholder="Buscar cliente, código ou contato" autocomplete="off">
+            </div>
+         </div>
+      </div>
+      <div id="wae-cli-lista" class="list-group list-group-flush">
+         <div class="list-group-item text-secondary"><i class="ti ti-loader-2 me-1"></i>Carregando clientes...</div>
+      </div>
+   </div>
+</div>
+
+<script>
+   $(function () {
+      if (window.WAEClientes) {
+         window.WAEClientes.iniciar('wae-clientes');
+      }
+   });
+</script>

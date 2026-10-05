@@ -111,15 +111,39 @@ if ($oficial === '' || !hash_equals($oficial, (string)$token)) {
                ? $resposta
                : ['texto' => (string)$resposta];
 
-            if (trim((string)($conteudo['texto'] ?? '')) === '') {
+            // Bloco Intervalo do construtor: pausa antes das mensagens seguintes
+            if (isset($conteudo['atraso'])) {
+               sleep(max(1, min(60, (int)$conteudo['atraso'])));
+               continue;
+            }
+
+            // Bloco Conteudo com imagem ou audio anexado no editor
+            $midia = null;
+            if (!empty($conteudo['midia']['arquivo'])
+                && PluginWhatsappempresaServidor::caminhoMidia((string)$conteudo['midia']['arquivo']) !== null) {
+               $midia = $conteudo['midia'];
+            }
+
+            if ($midia === null && trim((string)($conteudo['texto'] ?? '')) === '') {
                continue;
             }
 
             // Entrega direta pelo servidor Node, sem depender da resposta deste webhook
-            $envio = PluginWhatsappempresaServidor::enviarTexto($telefone, $conteudo);
+            $envio = PluginWhatsappempresaServidor::enviarTexto($telefone, $conteudo, $midia);
+
+            // Audio convertido (WebM -> OGG) no envio: o historico aponta para o arquivo enviado
+            if ($midia !== null && !empty($envio['convertido']['arquivo'])) {
+               $midia['arquivo'] = (string)$envio['convertido']['arquivo'];
+               $midia['mime']    = (string)($envio['convertido']['mime'] ?? $midia['mime']);
+            }
+            if ($midia !== null && trim((string)($conteudo['texto'] ?? '')) === '') {
+               $conteudo['texto'] = PluginWhatsappempresaMensagem::rotuloDaMidia((string)$midia['tipo']);
+            }
+            unset($conteudo['midia']);
 
             try {
                $mensagens_id = PluginWhatsappempresaMensagem::registrar([
+                  'midia'        => $midia,
                   'conversas_id' => $conversas_id,
                   'telefone'     => $telefone,
                   'direcao'      => 'saida',

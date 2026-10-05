@@ -16,6 +16,7 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
    const ABA_REGRAS     = 3;
    const ABA_MENSAGENS  = 4;
    const ABA_FLUXOS     = 5;
+   const ABA_CLIENTES   = 6;
 
    static function getTypeName($nb = 0): string {
       return 'WhatsApp Empresa';
@@ -69,6 +70,7 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
          self::ABA_PARAMETROS => self::createTabEntry('Parametros', 0, null, 'ti ti-adjustments'),
          self::ABA_REGRAS     => self::createTabEntry('Regras', 0, null, 'ti ti-shield-check'),
          self::ABA_MENSAGENS  => self::createTabEntry('Mensagens', 0, null, 'ti ti-message-2'),
+         self::ABA_CLIENTES   => self::createTabEntry('Clientes', countElementsInTable(PluginWhatsappempresaCliente::TABELA), null, 'ti ti-building'),
          self::ABA_FLUXOS     => self::createTabEntry('Fluxos', 0, null, 'ti ti-git-merge')
       ];
    }
@@ -111,6 +113,29 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
 
          case self::ABA_FLUXOS:
             self::renderizar('painel_fluxos', $variaveis);
+            break;
+
+         case self::ABA_CLIENTES:
+            // Campos nativos do GLPI (select2) para escolher a entidade e o requerente do novo cliente
+            $variaveis['campo_entidade'] = Entity::dropdown([
+               'name'    => 'entities_id',
+               'value'   => -1,
+               'entity'  => $_SESSION['glpiactiveentities'] ?? [],
+               'display' => false,
+               'width'   => '100%',
+               'display_emptychoice' => true,
+               'rand'    => mt_rand()
+            ]);
+            $variaveis['campo_requerente'] = User::dropdown([
+               'name'    => 'users_id_requerente',
+               'value'   => 0,
+               'right'   => 'all',
+               'display' => false,
+               'width'   => '100%',
+               'rand'    => mt_rand()
+            ]);
+            $variaveis['exige_codigo'] = PluginWhatsappempresaConfig::ativo('exige_codigo');
+            self::renderizar('painel_clientes', $variaveis);
             break;
       }
 
