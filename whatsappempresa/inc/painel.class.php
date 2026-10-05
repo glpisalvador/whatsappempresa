@@ -70,7 +70,6 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
          self::ABA_SERVIDOR   => self::createTabEntry('Servidor', 0, null, 'ti ti-server'),
          self::ABA_HISTORICO  => self::createTabEntry('Mensagens', 0, null, 'ti ti-messages'),
          self::ABA_PARAMETROS => self::createTabEntry('Parametros', 0, null, 'ti ti-adjustments'),
-         self::ABA_REGRAS     => self::createTabEntry('Regras', 0, null, 'ti ti-shield-check'),
          self::ABA_MENSAGENS  => self::createTabEntry('Textos', 0, null, 'ti ti-forms'),
          self::ABA_CLIENTES   => self::createTabEntry('Clientes', countElementsInTable(PluginWhatsappempresaCliente::TABELA), null, 'ti ti-building'),
          self::ABA_FLUXOS     => self::createTabEntry('Fluxos', 0, null, 'ti ti-git-merge')
@@ -94,17 +93,14 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
             break;
 
          case self::ABA_PARAMETROS:
-            $variaveis['webhook_padrao'] = rtrim((string)($GLOBALS['CFG_GLPI']['url_base'] ?? ''), '/') . '/plugins/whatsappempresa/front/webhook.php';
-            self::renderizar('painel_parametros', $variaveis);
-            break;
-
-         case self::ABA_REGRAS:
+         case self::ABA_REGRAS: // antiga aba Regras, unida a Parametros
             $variaveis['tipos'] = Ticket::getTypes();
             $variaveis['urgencias'] = [];
             foreach ([5, 4, 3, 2, 1] as $nivel) {
                $variaveis['urgencias'][$nivel] = Ticket::getUrgencyName($nivel);
             }
-            self::renderizar('painel_regras', $variaveis);
+            $variaveis['webhook_padrao'] = rtrim((string)($GLOBALS['CFG_GLPI']['url_base'] ?? ''), '/') . '/plugins/whatsappempresa/front/webhook.php';
+            self::renderizar('painel_parametros', $variaveis);
             break;
 
          case self::ABA_MENSAGENS:
@@ -212,14 +208,12 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
       $textos = [];
 
       switch ($aba) {
+         // Parametros reune a antiga aba Regras (atendimento) e a conexao
          case 'parametros':
-            $caixas  = ['webhook_tls_inseguro', 'log_detalhado'];
-            $numeros = ['node_porta', 'retencao_dias'];
-            $textos  = ['webhook_url'];
-            break;
-
          case 'regras':
+            $textos = ['webhook_url'];
             $caixas = [
+               'webhook_tls_inseguro', 'log_detalhado',
                'fluxo_autoatendimento', 'fluxo_aprovacao', 'fluxo_conversa', 'fluxo_construtor', 'botoes_whatsapp',
                'menu_chamados', 'menu_validacoes', 'menu_abrir', 'menu_falar_tecnico',
                'exige_codigo', 'notificar_tecnico', 'aviso_status', 'saida_silencia',
@@ -227,6 +221,7 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
                'followup_encerramento', 'followup_privado', 'log_fluxos'
             ];
             $numeros = [
+               'node_porta', 'retencao_dias',
                'sessao_codigo_minutos', 'tentativas_max', 'bloqueio_minutos', 'sessao_minutos',
                'abertura_tipo', 'abertura_urgencia', 'abertura_categoria', 'conversa_minutos'
             ];

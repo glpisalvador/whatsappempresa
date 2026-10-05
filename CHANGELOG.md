@@ -2,6 +2,15 @@
 
 O arquivo para download de cada versão está em [Releases](https://github.com/glpisalvador/whatsappempresa/releases).
 
+## 3.3.1 — 2026-09-29
+
+Versão intermediária de 29/09/2026.
+
+
+**Arquivos alterados:** `inc/fluxo.class.php`, `inc/painel.class.php`, `public/js/clientes.js`, `setup.php`, `templates/painel_clientes.html.twig`, `templates/painel_parametros.html.twig`
+
+**Arquivos removidos:** `templates/painel_regras.html.twig`
+
 ## 3.3.0 — 2026-09-29
 
 Versão intermediária de 29/09/2026.
