@@ -1,0 +1,138 @@
+{#
+ # whatsappempresa - aba Servidor: preparacao, pareamento, testes e diagnostico
+ #}
+<div id="wae-painel-servidor" data-edita="{{ canedit ? 1 : 0 }}">
+
+    {% if not canedit %}
+        <div class="alert alert-warning">Acesso somente de leitura: as acoes estao desabilitadas para o seu perfil.</div>
+    {% endif %}
+
+    <div class="row g-3">
+        <div class="col-xl-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-list-check me-2"></i>Preparacao do servidor</h3>
+                    <div class="card-actions d-flex align-items-center gap-2">
+                        <span class="badge bg-secondary-lt" id="wae-badge-geral">Verificando</span>
+                        <button type="button" class="btn btn-primary btn-sm" id="wae-preparar">
+                            <i class="ti ti-wand me-1"></i>Preparar tudo
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body border-bottom py-2 text-secondary small">
+                    Tudo o que o servidor WhatsApp precisa e instalado e controlado por aqui, sem acesso ao terminal:
+                    o Node.js oficial, as dependencias, o vigia que religa o servico e o pareamento do aparelho.
+                    "Preparar tudo" executa em sequencia as etapas pendentes.
+                </div>
+                <div class="list-group list-group-flush" id="wae-etapas">
+                    <div class="list-group-item text-secondary"><i class="ti ti-loader-2 me-1"></i>Verificando o ambiente...</div>
+                </div>
+            </div>
+
+            <div class="card mt-3" id="wae-tarefa" hidden>
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-terminal-2 me-2"></i><span id="wae-tarefa-titulo">Tarefa</span></h3>
+                    <div class="card-actions"><span class="badge bg-blue-lt" id="wae-tarefa-estado">Em andamento</span></div>
+                </div>
+                <div class="card-body p-0">
+                    <pre class="m-0 p-3 bg-dark text-light small overflow-auto" id="wae-tarefa-log" style="max-height:18rem;white-space:pre-wrap"></pre>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-qrcode me-2"></i>Pareamento do aparelho</h3>
+                </div>
+                <div class="card-body" id="wae-qr">
+                    <div class="text-secondary"><i class="ti ti-loader-2 me-1"></i>Verificando...</div>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-chart-bar me-2"></i>Atividade</h3>
+                </div>
+                <div class="card-body">
+                    <div class="datagrid" id="wae-info-tempos"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mt-0">
+        <div class="col-xl-6">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-send me-2"></i>Envio de teste</h3>
+                </div>
+                <div class="card-body">
+                    {% if canedit %}
+                        <div class="mb-2">
+                            <label class="form-label" for="wae-teste-telefone">Numero com DDI e DDD</label>
+                            <input type="text" class="form-control" id="wae-teste-telefone" placeholder="5571999999999" inputmode="numeric">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" for="wae-teste-texto">Mensagem</label>
+                            <input type="text" class="form-control" id="wae-teste-texto" placeholder="Mensagem de teste do WhatsApp Empresa">
+                        </div>
+                        <button type="button" class="btn btn-primary" id="wae-enviar-teste"><i class="ti ti-send me-1"></i>Enviar</button>
+                    {% else %}
+                        <p class="text-secondary mb-0">Somente perfis com permissao de alteracao podem enviar testes.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-6">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-user-cog me-2"></i>Situacao de um numero</h3>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label" for="wae-liberar-telefone">Numero</label>
+                        <input type="text" class="form-control" id="wae-liberar-telefone" placeholder="5571999999999" inputmode="numeric">
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary" id="wae-consultar-fluxo"><i class="ti ti-search me-1"></i>Consultar</button>
+                        {% if canedit %}
+                            <button type="button" class="btn btn-outline-primary" id="wae-liberar-numero"><i class="ti ti-lock-open me-1"></i>Devolver ao atendimento automatico</button>
+                        {% endif %}
+                    </div>
+                    <div class="mt-3" id="wae-resultado-fluxo" hidden></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mt-0">
+        <div class="col-xl-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-file-text me-2"></i>Log do servidor</h3>
+                    <div class="card-actions">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="wae-atualizar-log"><i class="ti ti-refresh me-1"></i>Atualizar</button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <pre class="m-0 p-3 bg-dark text-light small overflow-auto" id="wae-log" style="max-height:24rem;white-space:pre-wrap">Carregando...</pre>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-4">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="ti ti-network me-2"></i>Rede e ambiente</h3>
+                </div>
+                <div class="card-body">
+                    <div class="datagrid" id="wae-info-rede"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    WAEPainel.iniciarServidor('wae-painel-servidor');
+</script>

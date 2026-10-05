@@ -1,0 +1,38 @@
+{#
+ # whatsappempresa - aba Parametros (mesmo formulario nativo de Configurar > Geral)
+ #}
+{% extends "pages/setup/general/base_form.html.twig" %}
+{% import 'components/form/fields_macros.html.twig' as fields %}
+
+{% set field_options = {'full_width': true} %}
+{% set curto = field_options|merge({'input_addclass': 'w-auto'}) %}
+
+{% block config_fields %}
+<input type="hidden" name="aba" value="parametros">
+<div class="row ps-4">
+    {{ fields.largeTitle('Conexao com o servidor WhatsApp', 'ti ti-plug-connected', true) }}
+
+    {{ fields.numberField('node_porta', cfg['node_porta'], 'Porta local do servidor', curto|merge({
+        'min': 1024, 'max': 65535,
+        'helper': 'O servidor escuta somente em 127.0.0.1. Altere apenas se a porta 3456 ja estiver em uso; reinicie o servico depois.'
+    })) }}
+
+    {{ fields.textField('webhook_url', cfg['webhook_url'], 'URL do webhook', field_options|merge({
+        'placeholder': webhook_padrao,
+        'helper': 'Endereco pelo qual o servidor entrega ao GLPI as mensagens recebidas. Deixe vazio para usar a URL do GLPI (' ~ webhook_padrao ~ ').'
+    })) }}
+
+    {{ fields.checkboxField('webhook_tls_inseguro', cfg['webhook_tls_inseguro'], 'Aceitar certificado HTTPS interno', field_options|merge({
+        'helper': 'Use somente em rede interna, quando o GLPI usa um certificado proprio que o servidor nao reconhece.'
+    })) }}
+
+    {{ fields.largeTitle('Registros', 'ti ti-history') }}
+
+    {{ fields.checkboxField('log_detalhado', cfg['log_detalhado'], 'Registrar cada mensagem recebida no log', field_options) }}
+
+    {{ fields.numberField('retencao_dias', cfg['retencao_dias'], 'Manter mensagens e registros por (dias)', curto|merge({
+        'min': 0,
+        'helper': 'A tarefa automatica remove o que for mais antigo. 0 guarda tudo.'
+    })) }}
+</div>
+{% endblock %}

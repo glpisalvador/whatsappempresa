@@ -1,0 +1,30 @@
+{#
+ # whatsappempresa - aba Mensagens (textos enviados ao cliente)
+ #}
+{% extends "pages/setup/general/base_form.html.twig" %}
+{% import 'components/form/fields_macros.html.twig' as fields %}
+
+{% set field_options = {'full_width': true} %}
+{% set area = field_options|merge({'rows': 3}) %}
+
+{% block config_fields %}
+<input type="hidden" name="aba" value="mensagens">
+<div class="row ps-4">
+    <div class="alert alert-info">
+        O WhatsApp aceita apenas texto simples: use *asterisco* para negrito e quebras de linha normais.
+    </div>
+
+    {% for grupo in grupos %}
+        {{ fields.largeTitle(grupo.titulo, grupo.icone, loop.first) }}
+        {% for chave, rotulo in grupo.campos %}
+            {{ fields.textareaField(chave, cfg[chave], rotulo, area) }}
+        {% endfor %}
+    {% endfor %}
+
+    {{ fields.largeTitle('Palavras que o cliente pode digitar', 'ti ti-filter') }}
+
+    {% for chave, dados in palavras %}
+        {{ fields.textField(chave, cfg[chave], dados[0], field_options|merge({'helper': dados[1]})) }}
+    {% endfor %}
+</div>
+{% endblock %}

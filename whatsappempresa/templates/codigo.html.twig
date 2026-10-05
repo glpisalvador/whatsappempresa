@@ -1,0 +1,23 @@
+{#
+ # whatsappempresa - formulario nativo do codigo de acesso
+ #}
+{% extends "generic_show_form.html.twig" %}
+{% import 'components/form/fields_macros.html.twig' as fields %}
+
+{% block form_fields %}
+    {{ fields.textField('codigo', item.fields['codigo'], 'Codigo', {
+        'required': true,
+        'helper': 'Valor que o cliente digita no WhatsApp para entrar no autoatendimento.'
+    }) }}
+
+    {{ fields.dropdownYesNo('is_ativo', item.isNewItem() ? 1 : item.fields['is_ativo'], 'Ativo') }}
+
+    {{ fields.textField('descricao', item.fields['descricao'], 'Descricao', {
+        'helper': 'Empresa ou setor que usa este codigo.'
+    }) }}
+
+    {{ fields.dropdownField('Entity', 'entities_id', item.fields['entities_id'], 'Entidade', {
+        'entity': session('glpiactiveentities'),
+        'helper': 'Entidade usada nos chamados abertos por quem informar este codigo.'
+    }) }}
+{% endblock %}

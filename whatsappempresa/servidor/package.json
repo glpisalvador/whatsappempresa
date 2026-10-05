@@ -1,0 +1,22 @@
+{
+  "name": "whatsappempresa",
+  "version": "3.0.0",
+  "description": "Servidor WhatsApp do plugin whatsappempresa para GLPI 11 e 12",
+  "main": "servidor.js",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node servidor.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "~6.7.24",
+    "pino": "^9.4.0",
+    "qrcode": "^1.5.4"
+  },
+  "overrides": {
+    "libsignal": "https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
