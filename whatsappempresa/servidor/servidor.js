@@ -190,7 +190,7 @@ function associar(telefone, jid) {
    let mudou = false;
    const ehLid = String(jid).endsWith('@lid');
 
-   // O LID identifica quem escreveu, mas o WhatsApp recusa envio para ele
+   // LID fica no mapa proprio (lid -> telefone); o de numeros guarda so enderecos @s.whatsapp.net
    if (ehLid) {
       if (mapaLid.get(jid) !== telefone) {
          mapaLid.set(jid, telefone);
@@ -248,6 +248,10 @@ function candidatosDeEnvio(jid, telefone) {
    const guardado = numero !== '' ? mapaJid.get(numero) : null;
    const ehLid = String(jid || '').endsWith('@lid');
 
+   // Aparelhos ja migrados para LID (Android atual) so decifram o que foi cifrado para o LID:
+   // ele vai primeiro, o numero fica como reserva
+   incluir(ehLid ? jid : lidDoTelefone(numero));
+
    if (!ehLid) {
       incluir(jid);
    }
@@ -258,18 +262,27 @@ function candidatosDeEnvio(jid, telefone) {
       incluir(variante + '@s.whatsapp.net');
    });
 
-   // Ultimo recurso: o proprio LID da conversa
-   if (ehLid) {
-      incluir(jid);
-   }
-
    return lista;
+}
+
+/**
+ * LID ja visto para o telefone (com ou sem o nono digito)
+ */
+function lidDoTelefone(numero) {
+   if (!numero) return null;
+   const variantes = variantesDoNumero(numero);
+   for (const [lid, fone] of mapaLid) {
+      if (variantes.indexOf(String(fone)) >= 0) {
+         return lid;
+      }
+   }
+   return null;
 }
 
 /**
  * Descobre o telefone real quando o WhatsApp entrega a mensagem com LID
  */
-function telefoneDaMensagem(mensagem) {
+async function telefoneDaMensagem(mensagem) {
    const chave = mensagem.key || {};
 
    const candidatos = [
@@ -292,11 +305,11 @@ function telefoneDaMensagem(mensagem) {
       return mapaLid.get(chave.remoteJid);
    }
 
-   // Tabela interna de correspondencia LID -> telefone do proprio Baileys
+   // Tabela interna de correspondencia LID -> telefone do proprio Baileys (assincrona no 7.x)
    try {
       const mapeador = socket?.signalRepository?.lidMapping;
       if (mapeador && typeof mapeador.getPNForLID === 'function') {
-         const encontrado = mapeador.getPNForLID(chave.remoteJid);
+         const encontrado = await mapeador.getPNForLID(chave.remoteJid);
          if (encontrado && String(encontrado).includes('@s.whatsapp.net')) {
             return numeroDoJid(encontrado);
          }
@@ -493,7 +506,7 @@ async function tratarRecebida(mensagem) {
    if (texto === '') return;
 
    const ehLid = jid.endsWith('@lid');
-   let telefone = telefoneDaMensagem(mensagem);
+   let telefone = await telefoneDaMensagem(mensagem);
 
    if (telefone === '') {
       telefone = numeroDoJid(jid);

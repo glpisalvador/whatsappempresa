@@ -85,40 +85,32 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
          . '" data-telefone="' . htmlescape($telefone) . '">';
 
       echo '<div class="card">';
-      echo '<div class="card-header">';
-      echo '<h3 class="card-title"><i class="ti ti-brand-whatsapp me-2"></i>Conversas do chamado</h3>';
-      echo '<div class="card-actions">';
-      echo '<button type="button" class="btn btn-sm btn-outline-secondary" id="wae-aba-atualizar"><i class="ti ti-refresh me-1"></i>Atualizar</button>';
-      echo '</div>';
-      echo '</div>';
 
-      echo '<div class="card-body">';
-
-      echo '<div class="row g-2 align-items-end mb-3">';
-      echo '<div class="col-md-4">';
-      echo '<label class="form-label" for="wae-aba-destino">Destino</label>';
-      echo '<select class="form-select" id="wae-aba-destino">';
+      // Barra unica: destino, contato da conversa aberta com o botao de encerrar e atualizar
+      echo '<div class="card-header py-2">';
+      echo '<div class="d-flex flex-wrap align-items-center gap-2 w-100">';
+      echo '<i class="ti ti-brand-whatsapp fs-2 text-success" title="WhatsApp"></i>';
+      echo '<select class="form-select form-select-sm w-auto" id="wae-aba-destino" title="Destino">';
       echo '<option value="requerente">Requerente do chamado</option>';
       echo '<option value="usuario">Usuario do GLPI</option>';
       echo '<option value="contato">Contato do GLPI</option>';
       echo '<option value="manual">Numero manual</option>';
       echo '</select>';
+      echo '<div class="d-flex align-items-center" id="wae-aba-destino-extra"></div>';
+      echo '<div class="d-flex flex-wrap align-items-center gap-2 ms-auto" id="wae-aba-ativas"></div>';
+      echo '<button type="button" class="btn btn-sm btn-ghost-secondary" id="wae-aba-atualizar" title="Atualizar"><i class="ti ti-refresh"></i></button>';
       echo '</div>';
-      echo '<div class="col-md-8" id="wae-aba-destino-extra"></div>';
       echo '</div>';
 
-      echo '<div class="wae-ativas mb-2" id="wae-aba-ativas"></div>';
+      echo '<div class="card-body">';
+
       echo '<div class="alert alert-warning wae-oculto" id="wae-aba-aviso"></div>';
-
-      echo '<label class="form-check form-switch mb-3">';
-      echo '<input class="form-check-input" type="checkbox" id="wae-aba-encerradas">';
-      echo '<span class="form-check-label">Mostrar conversas encerradas</span>';
-      echo '</label>';
 
       echo '<div class="wae-chat" id="wae-aba-chat"><div class="text-secondary">Carregando conversas...</div></div>';
 
-      echo '<div class="input-group mt-3">';
-      echo '<textarea class="form-control" id="wae-aba-texto" rows="2" placeholder="Escreva a mensagem"></textarea>';
+      // Uma linha: Enter envia, Shift+Enter quebra linha
+      echo '<div class="input-group align-items-start mt-3">';
+      echo '<textarea class="form-control" id="wae-aba-texto" rows="1" style="resize:none" placeholder="Escreva a mensagem e tecle Enter"></textarea>';
       echo '<button type="button" class="btn btn-primary" id="wae-aba-enviar"><i class="ti ti-send me-1"></i>Enviar</button>';
       echo '</div>';
 
@@ -605,32 +597,6 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
     * Monta a transcricao da conversa e grava como acompanhamento do chamado
     */
    static function gravarTranscricao(int $conversas_id, array $conversa, string $motivo, int $autor): bool {
-      $mensagens = self::listarMensagens($conversas_id, 200);
-
-      $contato = (string)($conversa['nome_contato'] ?: $conversa['telefone']);
-      $linhas  = [];
-
-      $linhas[] = '<p><strong>Conversa de WhatsApp encerrada</strong></p>';
-      // htmlescape existe no GLPI 11 e 12 (Html::clean nao existe em nenhum dos dois)
-      $linhas[] = '<p>Contato: ' . htmlescape($contato) . ' (' . htmlescape((string)$conversa['telefone']) . ')<br>';
-      $linhas[] = 'Motivo: ' . htmlescape($motivo) . '<br>';
-      $linhas[] = 'Mensagens trocadas: ' . count($mensagens) . '</p>';
-
-      if (empty($mensagens)) {
-         $linhas[] = '<p>Nenhuma mensagem foi trocada nesta conversa.</p>';
-      } else {
-         $linhas[] = '<p><strong>Transcricao</strong></p><ul>';
-
-         foreach ($mensagens as $mensagem) {
-            $quem = ($mensagem['direcao'] === 'saida') ? 'Atendimento' : $contato;
-            $linhas[] = '<li>' . htmlescape((string)$mensagem['data']) . ' - <strong>'
-                      . htmlescape($quem) . ':</strong> '
-                      . htmlescape(strip_tags((string)$mensagem['conteudo'])) . '</li>';
-         }
-
-         $linhas[] = '</ul>';
-      }
-
       $tecnicos_id = (int)$conversa['tecnicos_id'];
       if ($tecnicos_id <= 0) {
          $tecnicos_id = $autor > 0 ? $autor : (int)$conversa['users_id'];
@@ -638,10 +604,132 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
 
       return self::gravarFollowup(
          (int)$conversa['tickets_id'],
-         implode('', $linhas),
+         self::transcricaoHtml($conversas_id, $conversa, $motivo),
          $tecnicos_id,
          PluginWhatsappempresaConfig::ativo('followup_privado')
       );
+   }
+
+   /**
+    * Transcricao no visual do WhatsApp Web (baloes, horario, separador de dia),
+    * com cores suaves e transparentes. So estilo inline: o GLPI 11 e 12 mantem o
+    * atributo style no acompanhamento e remove blocos <style>; tambem vale no e-mail.
+    */
+   static function transcricaoHtml(int $conversas_id, array $conversa, string $motivo): string {
+      global $DB;
+
+      $contato  = (string)($conversa['nome_contato'] ?: $conversa['telefone']);
+      $telefone = (string)$conversa['telefone'];
+
+      $mensagens = [];
+      foreach ($DB->request([
+         'FROM'  => 'glpi_plugin_whatsappempresa_mensagens',
+         'WHERE' => ['conversas_id' => $conversas_id],
+         'ORDER' => 'id ASC',
+         'LIMIT' => 500
+      ]) as $linha) {
+         $mensagens[] = $linha;
+      }
+
+      $caixa   = 'background:rgba(239,234,226,0.55);border:1px solid rgba(11,20,26,0.06);border-radius:8px;padding:10px 12px;max-width:760px;';
+      $topo    = 'background:rgba(0,128,105,0.10);border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:12px;color:#0b3d34;';
+      $chip    = 'display:inline-block;background:rgba(255,255,255,0.75);color:rgba(84,101,111,0.95);font-size:11px;padding:3px 10px;border-radius:7px;box-shadow:0 1px 0.5px rgba(11,20,26,0.08);';
+      $balao   = 'display:inline-block;text-align:left;max-width:78%;padding:6px 9px 4px;border-radius:7.5px;font-size:13px;line-height:1.4;color:#111b21;box-shadow:0 1px 0.5px rgba(11,20,26,0.10);word-wrap:break-word;overflow-wrap:anywhere;';
+      $recebido = 'background:rgba(255,255,255,0.78);';
+      $enviado  = 'background:rgba(217,253,211,0.78);';
+      $hora    = 'display:block;text-align:right;font-size:10.5px;color:rgba(17,27,33,0.45);margin-top:1px;';
+
+      $html  = '<div style="' . $caixa . '">';
+      $html .= '<div style="' . $topo . '"><strong>Conversa de WhatsApp</strong> &middot; '
+             . htmlescape($contato) . ($contato !== $telefone ? ' (' . htmlescape($telefone) . ')' : '')
+             . ' &middot; ' . count($mensagens) . ' mensage' . (count($mensagens) === 1 ? 'm' : 'ns') . '</div>';
+
+      if (empty($mensagens)) {
+         $html .= '<div style="text-align:center;margin:8px 0;"><span style="' . $chip . '">Nenhuma mensagem foi trocada nesta conversa</span></div>';
+      }
+
+      $diaAnterior   = '';
+      $autorAnterior = '';
+
+      foreach ($mensagens as $mensagem) {
+         $data = (string)($mensagem['date_creation'] ?? '');
+         $dia  = $data !== '' ? substr($data, 0, 10) : '';
+
+         if ($dia !== $diaAnterior) {
+            $html .= '<div style="text-align:center;margin:8px 0 6px;"><span style="' . $chip . '">'
+                   . htmlescape(self::rotuloDia($dia)) . '</span></div>';
+            $diaAnterior   = $dia;
+            $autorAnterior = '';
+         }
+
+         $saida = ($mensagem['direcao'] === 'saida');
+         $autor = $saida ? self::autorDaSaida($mensagem) : $contato;
+         $novo  = ($autor !== $autorAnterior);
+         $autorAnterior = $autor;
+
+         // A "pontinha" do balao so aparece na primeira mensagem de cada sequencia, como no WhatsApp
+         $canto = $novo ? ($saida ? 'border-top-right-radius:0;' : 'border-top-left-radius:0;') : '';
+
+         $html .= '<div style="text-align:' . ($saida ? 'right' : 'left') . ';margin:' . ($novo ? '6px' : '2px') . ' 0 0;">';
+         $html .= '<div style="' . $balao . ($saida ? $enviado : $recebido) . $canto . '">';
+
+         if ($novo) {
+            $html .= '<span style="display:block;font-size:11.5px;font-weight:600;color:'
+                   . ($saida ? 'rgba(0,128,105,0.95)' : 'rgba(2,126,181,0.95)') . ';margin-bottom:1px;">'
+                   . htmlescape($autor) . '</span>';
+         }
+
+         $html .= self::formatarTextoWhatsapp((string)$mensagem['conteudo']);
+
+         $html .= '<span style="' . $hora . '">' . ($data !== '' ? htmlescape(substr($data, 11, 5)) : '');
+         if ($saida) {
+            $html .= ((string)$mensagem['status_envio'] === 'erro')
+               ? ' <span style="color:rgba(220,53,69,0.85);" title="Nao entregue">&#9888;</span>'
+               : ' <span style="color:rgba(83,189,235,0.95);letter-spacing:-3px;">&#10003;&#10003;</span>';
+         }
+         $html .= '</span></div></div>';
+      }
+
+      $html .= '<div style="text-align:center;margin:10px 0 2px;"><span style="' . $chip . '">Conversa encerrada &middot; '
+             . htmlescape($motivo) . '</span></div>';
+      $html .= '</div>';
+
+      return $html;
+   }
+
+   /**
+    * Nome mostrado no balao enviado: tecnico que escreveu ou o atendimento automatico
+    */
+   private static function autorDaSaida(array $mensagem): string {
+      $users_id = (int)($mensagem['users_id'] ?? 0);
+      if ($users_id > 0 && (string)($mensagem['origem_tipo'] ?? '') !== 'automacao') {
+         return PluginWhatsappempresaConfig::nomeUsuario($users_id);
+      }
+      return 'Atendimento automatico';
+   }
+
+   /**
+    * Separador de dia do WhatsApp. O acompanhamento fica gravado para sempre,
+    * entao usa a data com o dia da semana (nunca "Hoje"/"Ontem", que envelheceriam errado)
+    */
+   private static function rotuloDia(string $dia): string {
+      $momento = $dia !== '' ? strtotime($dia) : false;
+      if ($momento === false) {
+         return $dia;
+      }
+      $semana = ['domingo', 'segunda-feira', 'terca-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sabado'];
+      return $semana[(int)date('w', $momento)] . ', ' . date('d/m/Y', $momento);
+   }
+
+   /**
+    * Escapa o texto e aplica a formatacao do WhatsApp: *negrito*, _italico_, ~riscado~ e quebras de linha
+    */
+   private static function formatarTextoWhatsapp(string $texto): string {
+      $seguro = htmlescape(trim(strip_tags($texto)));
+      $seguro = preg_replace('/(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])/u', '<strong>$1</strong>', $seguro);
+      $seguro = preg_replace('/(?<![\w_])_(?!\s)([^_\n]+?)(?<!\s)_(?![\w_])/u', '<em>$1</em>', $seguro);
+      $seguro = preg_replace('/(?<![\w~])~(?!\s)([^~\n]+?)(?<!\s)~(?![\w~])/u', '<s>$1</s>', $seguro);
+      return nl2br($seguro, false);
    }
 
    /**

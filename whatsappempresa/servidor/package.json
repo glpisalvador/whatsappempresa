@@ -9,12 +9,9 @@
     "start": "node servidor.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "~6.7.24",
+    "@whiskeysockets/baileys": "7.0.0-rc14",
     "pino": "^9.4.0",
     "qrcode": "^1.5.4"
-  },
-  "overrides": {
-    "libsignal": "https://codeload.github.com/WhiskeySockets/libsignal-node/tar.gz/bcea72df9ec34d9d9140ab30619cf479c7c144c7"
   },
   "engines": {
     "node": ">=20.0.0"
