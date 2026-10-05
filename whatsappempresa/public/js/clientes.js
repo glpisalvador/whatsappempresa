@@ -172,8 +172,8 @@
             '<div class="row g-3">' +
                '<div class="col-lg-4"><label class="form-label">Requerente padrão' + ajuda('Usuário do GLPI em nome de quem são abertos os chamados dos contatos sem usuário próprio.') + '</label>' +
                   '<div data-requerente><span class="text-secondary small">Carregando...</span></div></div>' +
-               '<div class="col-lg-4"><label class="form-label">Categoria dos chamados' + ajuda('Categoria dos chamados abertos pelo WhatsApp. Vazio: usa a da aba Regras. Um bloco "Abrir registro" com categoria própria tem prioridade.') + '</label>' +
-                  '<select class="form-select" data-cli="itilcategories_id"' + dis + '>' + opcoes(categorias, c.itilcategories_id, 'Padrão da aba Regras') + '</select></div>' +
+               '<div class="col-lg-4"><label class="form-label">Categoria dos chamados' + ajuda('Categoria dos chamados abertos pelo WhatsApp. Vazio: usa a da aba Parâmetros. Um bloco "Abrir registro" com categoria própria tem prioridade.') + '</label>' +
+                  '<select class="form-select" data-cli="itilcategories_id"' + dis + '>' + opcoes(categorias, c.itilcategories_id, 'Padrão da aba Parâmetros') + '</select></div>' +
                '<div class="col-lg-4"><label class="form-label">Observação interna' + ajuda('Anotação visível só nesta tela.') + '</label>' +
                   '<input type="text" class="form-control" data-cli="observacao" value="' + e(c.observacao) + '" maxlength="255"' + dis + '></div>' +
             '</div>' +

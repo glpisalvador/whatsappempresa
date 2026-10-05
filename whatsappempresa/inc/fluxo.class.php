@@ -2047,7 +2047,7 @@ class PluginWhatsappempresaFluxo {
 
       $conteudo = $texto . "\n\n" . PluginWhatsappempresaCliente::assinatura($telefone, $identidade);
 
-      // Categoria do codigo/cliente tem prioridade sobre a padrao da aba Regras
+      // Categoria do codigo/cliente tem prioridade sobre a padrao da aba Parametros
       $parametros = PluginWhatsappempresaCliente::parametrosAbertura($telefone);
 
       $ticket = new Ticket();

@@ -1,38 +1,108 @@
 {#
- # whatsappempresa - aba Parametros (mesmo formulario nativo de Configurar > Geral)
+ # whatsappempresa - aba Parametros: regras de atendimento e conexao, num formulario so
+ # (mesmo formulario nativo de Configurar > Geral; campos em duas colunas, explicacoes no icone de ajuda)
  #}
 {% extends "pages/setup/general/base_form.html.twig" %}
 {% import 'components/form/fields_macros.html.twig' as fields %}
 
-{% set field_options = {'full_width': true} %}
-{% set curto = field_options|merge({'input_addclass': 'w-auto'}) %}
+{% set curto = {'input_addclass': 'w-auto'} %}
 
 {% block config_fields %}
 <input type="hidden" name="aba" value="parametros">
-<div class="row ps-4">
-    {{ fields.largeTitle('Conexao com o servidor WhatsApp', 'ti ti-plug-connected', true) }}
+<div class="row ps-4 wae-parametros">
 
+    {{ fields.largeTitle('Recursos', 'ti ti-toggle-right', true) }}
+    {{ fields.checkboxField('fluxo_autoatendimento', cfg['fluxo_autoatendimento'], 'Autoatendimento', {
+        'helper': 'Menu de atendimento para o cliente no WhatsApp.'
+    }) }}
+    {{ fields.checkboxField('fluxo_construtor', cfg['fluxo_construtor'], 'Fluxos da aba Fluxos', {
+        'helper': 'Os fluxos montados no construtor visual respondem no WhatsApp.'
+    }) }}
+    {{ fields.checkboxField('fluxo_conversa', cfg['fluxo_conversa'], 'Conversa técnico e cliente', {
+        'helper': 'Exibe a aba WhatsApp nos chamados.'
+    }) }}
+    {{ fields.checkboxField('fluxo_aprovacao', cfg['fluxo_aprovacao'], 'Aprovação de validações', {
+        'helper': 'Envia os pedidos de validação e recebe a aprovação ou recusa pelo WhatsApp.'
+    }) }}
+    {{ fields.checkboxField('botoes_whatsapp', cfg['botoes_whatsapp'], 'Botões clicáveis', {
+        'helper': 'Contas comuns do WhatsApp costumam descartar mensagens com botões sem avisar. Desligado, o menu vai como texto numerado, que sempre chega. Teste antes de ligar.'
+    }) }}
+
+    {{ fields.largeTitle('Menu do cliente', 'ti ti-list-check') }}
+    {{ fields.checkboxField('menu_chamados', cfg['menu_chamados'], 'Meus chamados') }}
+    {{ fields.checkboxField('menu_validacoes', cfg['menu_validacoes'], 'Validações pendentes') }}
+    {{ fields.checkboxField('menu_abrir', cfg['menu_abrir'], 'Abrir chamado') }}
+    {{ fields.checkboxField('menu_falar_tecnico', cfg['menu_falar_tecnico'], 'Falar com o técnico', {
+        'helper': 'Os fluxos com gatilho de menu também aparecem no menu automaticamente.'
+    }) }}
+
+    {{ fields.largeTitle('Acesso e sessão', 'ti ti-shield-lock') }}
+    {{ fields.checkboxField('exige_codigo', cfg['exige_codigo'], 'Exigir código de acesso', {
+        'helper': 'Os códigos de cada cliente ficam na aba Clientes.'
+    }) }}
+    {{ fields.numberField('sessao_codigo_minutos', cfg['sessao_codigo_minutos'], 'Sessão após o código (min)', curto|merge({
+        'min': 0, 'helper': 'Tempo que o acesso fica liberado depois do código. 0 desliga a expiração.'
+    })) }}
+    {{ fields.numberField('tentativas_max', cfg['tentativas_max'], 'Tentativas antes do bloqueio', curto|merge({'min': 1})) }}
+    {{ fields.numberField('bloqueio_minutos', cfg['bloqueio_minutos'], 'Bloqueio (min)', curto|merge({
+        'min': 0, 'helper': 'Tempo que o número fica bloqueado depois de errar o código.'
+    })) }}
+    {{ fields.numberField('sessao_minutos', cfg['sessao_minutos'], 'Inatividade da sessão (min)', curto|merge({
+        'min': 0, 'helper': 'Sem mensagens por esse tempo, o atendimento volta ao início.'
+    })) }}
+
+    {{ fields.largeTitle('Abertura de chamado', 'ti ti-ticket') }}
+    {{ fields.dropdownArrayField('abertura_tipo', cfg['abertura_tipo'], tipos, 'Tipo') }}
+    {{ fields.dropdownArrayField('abertura_urgencia', cfg['abertura_urgencia'], urgencias, 'Urgência') }}
+    {{ fields.dropdownField('ITILCategory', 'abertura_categoria', cfg['abertura_categoria'], 'Categoria padrão', {
+        'helper': 'Usada quando o cliente e o código não têm categoria própria. Os blocos "Abrir registro" dos fluxos podem definir tipo, categoria, SLA e grupo.'
+    }) }}
+
+    {{ fields.largeTitle('Avisos e conversa', 'ti ti-messages') }}
+    {{ fields.checkboxField('notificar_tecnico', cfg['notificar_tecnico'], 'Avisar o técnico', {
+        'helper': 'Alerta no GLPI quando o cliente escreve na conversa.'
+    }) }}
+    {{ fields.checkboxField('aviso_status', cfg['aviso_status'], 'Avisar mudança de status', {
+        'helper': 'Manda mensagem ao cliente quando o status do chamado muda.'
+    }) }}
+    {{ fields.checkboxField('conversa_tecnico_prende', cfg['conversa_tecnico_prende'], 'Respostas vão para a conversa', {
+        'helper': 'Depois que o técnico escreve, as respostas do cliente vão para a conversa e não para o menu.'
+    }) }}
+    {{ fields.checkboxField('conversa_unica_por_numero', cfg['conversa_unica_por_numero'], 'Uma conversa por número', {
+        'helper': 'O número conversa sobre um chamado por vez; outro chamado encerra a conversa anterior.'
+    }) }}
+    {{ fields.checkboxField('enviar_apresentacao', cfg['enviar_apresentacao'], 'Apresentação do técnico', {
+        'helper': 'Envia a apresentação (aba Textos) na primeira mensagem da conversa.'
+    }) }}
+    {{ fields.numberField('conversa_minutos', cfg['conversa_minutos'], 'Encerrar conversa parada (min)', curto|merge({
+        'min': 0, 'helper': '0 desliga o encerramento automático.'
+    })) }}
+    {{ fields.checkboxField('followup_encerramento', cfg['followup_encerramento'], 'Salvar conversa no chamado', {
+        'helper': 'Ao encerrar, grava a conversa (com imagens e áudios) como acompanhamento.'
+    }) }}
+    {{ fields.checkboxField('followup_privado', cfg['followup_privado'], 'Acompanhamento privado') }}
+    {{ fields.checkboxField('saida_silencia', cfg['saida_silencia'], 'Palavra de saída silencia', {
+        'helper': 'Desligado, a palavra de saída apenas finaliza o fluxo em andamento.'
+    }) }}
+    {{ fields.checkboxField('log_fluxos', cfg['log_fluxos'], 'Registrar trocas de fluxo') }}
+
+    {{ fields.largeTitle('Conexão e registros', 'ti ti-plug-connected') }}
     {{ fields.numberField('node_porta', cfg['node_porta'], 'Porta local do servidor', curto|merge({
         'min': 1024, 'max': 65535,
-        'helper': 'O servidor escuta somente em 127.0.0.1. Altere apenas se a porta 3456 ja estiver em uso; reinicie o servico depois.'
+        'helper': 'O servidor escuta só em 127.0.0.1. Altere apenas se a porta 3456 já estiver em uso; o serviço reinicia sozinho ao salvar.'
     })) }}
-
-    {{ fields.textField('webhook_url', cfg['webhook_url'], 'URL do webhook', field_options|merge({
+    {{ fields.textField('webhook_url', cfg['webhook_url'], 'URL do webhook', {
         'placeholder': webhook_padrao,
-        'helper': 'Endereco pelo qual o servidor entrega ao GLPI as mensagens recebidas. Deixe vazio para usar a URL do GLPI (' ~ webhook_padrao ~ ').'
-    })) }}
-
-    {{ fields.checkboxField('webhook_tls_inseguro', cfg['webhook_tls_inseguro'], 'Aceitar certificado HTTPS interno', field_options|merge({
-        'helper': 'Use somente em rede interna, quando o GLPI usa um certificado proprio que o servidor nao reconhece.'
-    })) }}
-
-    {{ fields.largeTitle('Registros', 'ti ti-history') }}
-
-    {{ fields.checkboxField('log_detalhado', cfg['log_detalhado'], 'Registrar cada mensagem recebida no log', field_options) }}
-
-    {{ fields.numberField('retencao_dias', cfg['retencao_dias'], 'Manter mensagens e registros por (dias)', curto|merge({
-        'min': 0,
-        'helper': 'A tarefa automatica remove o que for mais antigo. 0 guarda tudo.'
+        'helper': 'Endereço pelo qual o servidor entrega ao GLPI as mensagens recebidas. Vazio: ' ~ webhook_padrao
+    }) }}
+    {{ fields.checkboxField('webhook_tls_inseguro', cfg['webhook_tls_inseguro'], 'Aceitar certificado interno', {
+        'helper': 'Só em rede interna, quando o GLPI usa HTTPS com certificado próprio.'
+    }) }}
+    {{ fields.checkboxField('log_detalhado', cfg['log_detalhado'], 'Log detalhado', {
+        'helper': 'Registra cada mensagem recebida e as falhas de requisição HTTP dos fluxos no log.'
+    }) }}
+    {{ fields.numberField('retencao_dias', cfg['retencao_dias'], 'Guardar mensagens (dias)', curto|merge({
+        'min': 0, 'helper': 'A tarefa automática remove o que for mais antigo. 0 guarda tudo.'
     })) }}
 </div>
 {% endblock %}
