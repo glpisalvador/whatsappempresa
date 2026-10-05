@@ -52,9 +52,19 @@ class PluginWhatsappempresaCodigo extends CommonDBTM {
       return Session::haveRight('config', UPDATE);
    }
 
+   /** Colunas da propria tabela marcadas com a classe (GLPI 12 nao deduz a classe de plurais em portugues) */
+   static function comTipoProprioLocal(array $opcoes): array {
+      foreach ($opcoes as $i => $opcao) {
+         if (is_array($opcao) && ($opcao['table'] ?? '') === static::getTable() && !isset($opcao['itemtype'])) {
+            $opcoes[$i]['itemtype'] = static::class;
+         }
+      }
+      return $opcoes;
+   }
+
    function rawSearchOptions() {
       $t = self::getTable();
-      return [
+      return self::comTipoProprioLocal([
          ['id' => 'common', 'name' => self::getTypeName(1)],
          ['id' => 1, 'table' => $t, 'field' => 'codigo', 'name' => 'Codigo', 'datatype' => 'itemlink', 'massiveaction' => false],
          ['id' => 2, 'table' => $t, 'field' => 'id', 'name' => 'ID', 'datatype' => 'number', 'massiveaction' => false],
@@ -63,7 +73,7 @@ class PluginWhatsappempresaCodigo extends CommonDBTM {
          ['id' => 19, 'table' => $t, 'field' => 'date_mod', 'name' => 'Ultima atualizacao', 'datatype' => 'datetime', 'massiveaction' => false],
          ['id' => 121, 'table' => $t, 'field' => 'date_creation', 'name' => 'Data de criacao', 'datatype' => 'datetime', 'massiveaction' => false],
          ['id' => 80, 'table' => 'glpi_entities', 'field' => 'completename', 'name' => 'Entidade', 'datatype' => 'dropdown', 'massiveaction' => true]
-      ];
+      ]);
    }
 
    function showForm($ID, array $options = []) {

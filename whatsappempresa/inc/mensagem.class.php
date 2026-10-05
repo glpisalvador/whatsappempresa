@@ -33,7 +33,7 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
 
    function rawSearchOptions() {
       $t = self::getTable();
-      return [
+      return self::comTipoProprio([
          ['id' => 'common', 'name' => self::getTypeName(1)],
          ['id' => 1, 'table' => $t, 'field' => 'conteudo', 'name' => 'Conteudo', 'datatype' => 'text', 'massiveaction' => false],
          ['id' => 2, 'table' => $t, 'field' => 'id', 'name' => 'ID', 'datatype' => 'number', 'massiveaction' => false],
@@ -49,7 +49,7 @@ class PluginWhatsappempresaMensagem extends CommonDBTM {
          ['id' => 12, 'table' => $t, 'field' => 'remetente', 'name' => 'De', 'datatype' => 'string', 'massiveaction' => false],
          ['id' => 13, 'table' => $t, 'field' => 'destinatario', 'name' => 'Para', 'datatype' => 'string', 'massiveaction' => false],
          ['id' => 14, 'table' => $t, 'field' => 'numero_host', 'name' => 'Numero do aparelho', 'datatype' => 'string', 'massiveaction' => false]
-      ];
+      ]);
    }
 
    /**

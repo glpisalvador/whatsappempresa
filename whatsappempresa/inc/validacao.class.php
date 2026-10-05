@@ -28,7 +28,7 @@ class PluginWhatsappempresaValidacao extends CommonDBTM {
 
    function rawSearchOptions() {
       $t = self::getTable();
-      return [
+      return self::comTipoProprio([
          ['id' => 'common', 'name' => self::getTypeName(1)],
          ['id' => 1, 'table' => $t, 'field' => 'titulo', 'name' => 'Pedido', 'datatype' => 'string', 'massiveaction' => false],
          ['id' => 2, 'table' => $t, 'field' => 'id', 'name' => 'ID', 'datatype' => 'number', 'massiveaction' => false],
@@ -40,7 +40,7 @@ class PluginWhatsappempresaValidacao extends CommonDBTM {
          ['id' => 8, 'table' => $t, 'field' => 'comentario', 'name' => 'Comentario', 'datatype' => 'text', 'massiveaction' => false],
          ['id' => 9, 'table' => $t, 'field' => 'itemtype', 'name' => 'Origem', 'datatype' => 'specific', 'searchtype' => ['equals', 'notequals'], 'massiveaction' => false],
          ['id' => 10, 'table' => $t, 'field' => 'objetos_id', 'name' => 'Numero do chamado ou mudanca', 'datatype' => 'number', 'massiveaction' => false]
-      ];
+      ]);
    }
 
    /**

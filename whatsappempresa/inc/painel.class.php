@@ -50,7 +50,7 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
          return false;
       }
       return [
-         'title' => 'Configuracao',
+         'title' => 'Servidores',
          'page'  => self::getSearchURL(false),
          'icon'  => self::getIcon()
       ];
