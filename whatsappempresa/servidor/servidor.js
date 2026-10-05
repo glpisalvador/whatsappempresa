@@ -8,6 +8,7 @@ import { createRequire } from 'module';
 import {
    makeWASocket,
    useMultiFileAuthState,
+   makeCacheableSignalKeyStore,
    DisconnectReason,
    fetchLatestBaileysVersion,
    generateWAMessageFromContent,
@@ -76,6 +77,41 @@ try {
 }
 
 const registrador = pino({ level: 'silent' });
+
+/**
+ * Mensagens enviadas recentemente. Quando o aparelho nao consegue decifrar
+ * ("Aguardando mensagem"), ele pede reenvio e o Baileys busca o conteudo aqui
+ * para cifrar de novo com uma sessao nova. Sem isso a mensagem nunca aparece.
+ */
+const enviadas = new Map();
+const LIMITE_ENVIADAS = 3000;
+
+async function enviarGuardando(destino, conteudo) {
+   const enviada = await socket.sendMessage(destino, conteudo);
+   if (enviada && enviada.key) guardarEnviada(enviada.key.id, enviada.message);
+   return enviada;
+}
+
+function guardarEnviada(id, conteudo) {
+   if (!id || !conteudo) return;
+   enviadas.set(id, conteudo);
+   if (enviadas.size > LIMITE_ENVIADAS) {
+      enviadas.delete(enviadas.keys().next().value);
+   }
+}
+
+// Contador de pedidos de reenvio exigido pelo Baileys (interface get/set/del/flushAll)
+const contadorReenvio = {
+   dados: new Map(),
+   get(chave) { return this.dados.get(chave); },
+   set(chave, valor) {
+      this.dados.set(chave, valor);
+      if (this.dados.size > 5000) this.dados.delete(this.dados.keys().next().value);
+      return true;
+   },
+   del(chave) { this.dados.delete(chave); return 1; },
+   flushAll() { this.dados.clear(); }
+};
 
 function agora() {
    return new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
@@ -543,11 +579,22 @@ async function conectarSessao() {
 
    socket = makeWASocket({
       version,
-      auth: state,
+      auth: {
+         creds: state.creds,
+         // Cache das chaves: evita gravacoes concorrentes que corrompem as sessoes de criptografia
+         keys: makeCacheableSignalKeyStore(state.keys, registrador)
+      },
       logger: registrador,
       printQRInTerminal: false,
       browser: ['WhatsAppEmpresa', 'Chrome', '1.0.0'],
-      getMessage: async () => undefined
+      msgRetryCounterCache: contadorReenvio,
+      getMessage: async (chave) => {
+         const conteudo = chave && chave.id ? enviadas.get(chave.id) : undefined;
+         if (conteudo) {
+            registrar('Reenvio pedido pelo aparelho', `${chave.remoteJid || ''} - mensagem cifrada de novo`);
+         }
+         return conteudo;
+      }
    });
 
    socket.ev.on('connection.update', async (atualizacao) => {
@@ -683,6 +730,7 @@ async function enviarBotoesNativos(jid, dados) {
    }, {});
 
    await socket.relayMessage(jid, mensagem.message, { messageId: mensagem.key.id });
+   guardarEnviada(mensagem.key.id, mensagem.message);
 
    return mensagem.key.id;
 }
@@ -719,12 +767,13 @@ async function enviarListaNativa(jid, dados) {
    }, {});
 
    await socket.relayMessage(jid, mensagem.message, { messageId: mensagem.key.id });
+   guardarEnviada(mensagem.key.id, mensagem.message);
 
    return mensagem.key.id;
 }
 
 async function enviarBotoesClassicos(jid, dados) {
-   const enviada = await socket.sendMessage(jid, {
+   const enviada = await enviarGuardando(jid, {
       text: dados.texto,
       footer: dados.rodape || undefined,
       buttons: dados.botoes.map((botao) => ({
@@ -739,7 +788,7 @@ async function enviarBotoesClassicos(jid, dados) {
 }
 
 async function enviarListaClassica(jid, dados) {
-   const enviada = await socket.sendMessage(jid, {
+   const enviada = await enviarGuardando(jid, {
       text: dados.texto,
       footer: dados.rodape || undefined,
       title: dados.lista.titulo || 'Opcoes',
@@ -766,7 +815,7 @@ async function enviarTextoPuro(jid, telefone, conteudo) {
 
    for (const endereco of enderecos) {
       try {
-         await socket.sendMessage(endereco, { text: conteudo });
+         await enviarGuardando(endereco, { text: conteudo });
 
          if (telefone) {
             associar(String(telefone).replace(/\D/g, ''), endereco);

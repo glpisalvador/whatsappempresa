@@ -3,9 +3,10 @@
 (function () {
    'use strict';
 
-   var RAPIDO = 4000;
-   var NORMAL = 10000;
+   var RAPIDO = 1500;
+   var NORMAL = 4000;
    var OCIOSO = 30000;
+   var CONVERSA_ABERTA = 1500;
    var raiz = (window.CFG_GLPI && window.CFG_GLPI.root_doc) ? window.CFG_GLPI.root_doc : '';
    var URL_AJAX = raiz + '/plugins/whatsappempresa/front/ajax.php';
    var token = '';
@@ -111,6 +112,7 @@
       telefoneAtual = '';
       ticketAtual = 0;
       document.getElementById('waen-conversa').classList.remove('waen-aberto');
+      reagendar();
    }
 
    function carregar() {
@@ -242,6 +244,7 @@
 
    function intervaloAtual() {
       if (document.hidden) { return OCIOSO; }
+      if (conversaAtual) { return CONVERSA_ABERTA; }
       return Date.now() < ateRapido ? RAPIDO : NORMAL;
    }
 

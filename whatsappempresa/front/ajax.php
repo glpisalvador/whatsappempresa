@@ -21,9 +21,15 @@ Session::checkLoginUser();
 
 $acao = (string)($_REQUEST['acao'] ?? '');
 
+// Consultas (GET) so leem: liberar a trava da sessao evita que o polling
+// enfileire as outras requisicoes do mesmo navegador e atrase as mensagens
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && session_status() === PHP_SESSION_ACTIVE) {
+   session_write_close();
+}
+
 function wae_responder(array $dados): void {
-   // Token novo so no GLPI 11 (as telas antigas de conversa ainda o reaproveitam); no 12 nao existe
-   $token = PluginWhatsappempresaConfig::tokenCsrf();
+   // Token novo so no GLPI 11 e so em POST (no GET a sessao ja foi liberada); no 12 nao existe
+   $token = $_SERVER['REQUEST_METHOD'] === 'POST' ? PluginWhatsappempresaConfig::tokenCsrf() : '';
    if ($token !== '') {
       $dados['token'] = $token;
    }

@@ -16,9 +16,9 @@
    var ocupado = false;
    var ateRapido = 0;
 
-   var RAPIDO = 2000;
-   var NORMAL = 5000;
-   var OCIOSO = 20000;
+   var RAPIDO = 1000;
+   var NORMAL = 1500;
+   var OCIOSO = 15000;
    var falhas = 0;
 
    function pedir(acao, dados, metodo) {
@@ -259,6 +259,17 @@
 
    var botaoEnviar = document.getElementById('wae-aba-enviar');
    if (botaoEnviar) { botaoEnviar.addEventListener('click', enviar); }
+
+   // Enter envia; Shift+Enter quebra a linha
+   var campoTexto = document.getElementById('wae-aba-texto');
+   if (campoTexto) {
+      campoTexto.addEventListener('keydown', function (evento) {
+         if (evento.key === 'Enter' && !evento.shiftKey && !evento.isComposing) {
+            evento.preventDefault();
+            if (!botaoEnviar || !botaoEnviar.disabled) { enviar(); }
+         }
+      });
+   }
 
    var atualizar = document.getElementById('wae-aba-atualizar');
    if (atualizar) { atualizar.addEventListener('click', carregar); }
