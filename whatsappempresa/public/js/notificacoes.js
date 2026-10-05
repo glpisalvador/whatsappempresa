@@ -331,8 +331,41 @@
       timer = setInterval(pulsar, intervaloAtual());
    }
 
+   /**
+    * O botao fica no canto esquerdo, logo depois do menu lateral do GLPI (sem cobrir o menu).
+    * Acompanha o menu ao recolher/expandir e ao redimensionar a janela.
+    */
+   function ajustarLado() {
+      var menu = document.querySelector('aside.navbar-vertical, aside.navbar');
+      var esquerda = 18;
+
+      if (menu && menu.offsetWidth > 0 && menu.offsetHeight > window.innerHeight / 2) {
+         var caixa = menu.getBoundingClientRect();
+         if (caixa.left < 40 && caixa.right < window.innerWidth / 2) {
+            esquerda = Math.round(caixa.right) + 18;
+         }
+      }
+
+      document.documentElement.style.setProperty('--waen-esquerda', esquerda + 'px');
+   }
+
+   function acompanharMenu() {
+      ajustarLado();
+      window.addEventListener('resize', ajustarLado);
+
+      var menu = document.querySelector('aside.navbar-vertical, aside.navbar');
+      if (menu && window.ResizeObserver) {
+         new ResizeObserver(ajustarLado).observe(menu);
+      }
+      // Recolher/expandir o menu troca classes no body
+      if (window.MutationObserver) {
+         new MutationObserver(ajustarLado).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+      }
+   }
+
    function iniciar() {
       if (document.getElementById('waen-botao')) { return; }
+      acompanharMenu();
       montarInterface();
       carregar();
       pulsar();

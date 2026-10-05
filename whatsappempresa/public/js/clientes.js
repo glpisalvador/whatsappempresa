@@ -9,8 +9,29 @@
    var podeEditar = false;
    var clientes = [];
    var abertos = {};
+   var categorias = [];
+   var botoesDisponivel = false;
 
    function e(texto) { return WAE.escapar(texto); }
+
+   /** <option>s de uma lista [{id, nome}] com a primeira opcao "vazia" */
+   function opcoes(lista, atual, rotuloVazio, campoValor) {
+      campoValor = campoValor || 'id';
+      return '<option value="' + (campoValor === 'id' ? '0' : '') + '">' + e(rotuloVazio) + '</option>' +
+         lista.map(function (item) {
+            var valor = String(item[campoValor]);
+            return '<option value="' + e(valor) + '"' + (valor === String(atual) ? ' selected' : '') + '>' + e(item.nome) + '</option>';
+         }).join('');
+   }
+
+   /** Setor: lista do plugin Botoes quando houver; sem lista, texto livre (maiusculas, como no Botoes) */
+   function campoSetor(cliente, atual, rotuloVazio, atributos) {
+      var setores = (cliente.botoes && cliente.botoes.setores) || [];
+      if (setores.length) {
+         return '<select class="form-select form-select-sm" ' + atributos + '>' + opcoes(setores, atual, rotuloVazio, 'nome') + '</select>';
+      }
+      return '<input type="text" class="form-control form-control-sm text-uppercase" ' + atributos + ' value="' + e(atual) + '" placeholder="' + e(rotuloVazio) + '" maxlength="255">';
+   }
 
    function formatarTelefone(valor) {
       var d = String(valor || '').replace(/\D/g, '').slice(0, 11);
@@ -36,6 +57,8 @@
             return;
          }
          clientes = r.itens || [];
+         categorias = r.categorias || [];
+         botoesDisponivel = !!r.botoes_disponivel;
          desenhar();
       });
    }
@@ -105,14 +128,23 @@
          return '<div class="list-group-item" data-cliente="' + c.entities_id + '">' + cabecalho + '</div>';
       }
 
+      var comBotoes = botoesDisponivel && !!c.usar_botoes;
+      var unidades = (c.botoes && c.botoes.unidades) || [];
+
       var codigos = c.codigos.map(function (k) {
          return '<tr data-codigo="' + k.id + '">' +
             '<td><input type="text" class="form-control form-control-sm font-monospace" data-campo="codigo" value="' + e(k.codigo) + '" maxlength="60"' + dis + '></td>' +
             '<td><input type="text" class="form-control form-control-sm" data-campo="descricao" value="' + e(k.descricao) + '" placeholder="Opcional"' + dis + '></td>' +
+            '<td><select class="form-select form-select-sm" data-campo="itilcategories_id"' + dis + '>' + opcoes(categorias, k.itilcategories_id, 'Categoria do cliente') + '</select></td>' +
+            (comBotoes
+               ? '<td><select class="form-select form-select-sm" data-campo="unidade_id"' + dis + '>' + opcoes(unidades, k.unidade_id, 'Unidade do cliente') + '</select></td>' +
+                 '<td>' + campoSetor(c, k.setor, 'Setor do cliente', 'data-campo="setor"' + dis) + '</td>'
+               : '') +
             '<td class="text-center"><input class="form-check-input" type="checkbox" data-campo="is_ativo"' + (k.is_ativo ? ' checked' : '') + dis + '></td>' +
             '<td class="text-end">' + (podeEditar ? '<button type="button" class="btn btn-sm btn-ghost-danger" data-remover-codigo="' + k.id + '"><i class="ti ti-x"></i></button>' : '') + '</td>' +
          '</tr>';
       }).join('');
+      var colunasCodigo = comBotoes ? 7 : 5;
 
       var contatos = c.contatos.map(function (k) {
          return '<tr data-contato="' + k.id + '">' +
@@ -123,6 +155,26 @@
          '</tr>';
       }).join('');
 
+      var blocoBotoes;
+      if (!botoesDisponivel) {
+         blocoBotoes = '<div class="text-secondary small"><i class="ti ti-info-circle me-1"></i>O plugin Botões não está ativo: Unidade e Setor não estão disponíveis.</div>';
+      } else {
+         blocoBotoes =
+            '<label class="form-check form-switch mb-2">' +
+               '<input class="form-check-input" type="checkbox" data-cli-campo="usar_botoes"' + (c.usar_botoes ? ' checked' : '') + dis + '>' +
+               '<span class="form-check-label">Preencher Unidade e Setor nos chamados</span>' +
+            '</label>' +
+            (c.usar_botoes
+               ? '<label class="form-label">Unidade</label>' +
+                 (unidades.length
+                    ? '<select class="form-select mb-1" data-cli-campo="unidade_id"' + dis + '>' + opcoes(unidades, c.unidade_id, 'Sem unidade') + '</select>'
+                    : '<div class="text-warning small mb-1"><i class="ti ti-alert-triangle me-1"></i>Nenhuma unidade cadastrada para esta entidade no plugin Botões.</div>') +
+                 '<label class="form-label mt-2">Setor</label>' +
+                 campoSetor(c, c.setor, (c.botoes.setores || []).length ? 'Sem setor' : 'Texto livre (entidade sem setores no Botões)', 'data-cli-campo="setor"' + dis) +
+                 '<div class="form-hint mt-2">Lidos do cadastro "Dados do cliente" do plugin Botões. Cada código abaixo pode usar outra unidade e outro setor.</div>'
+               : '<div class="form-hint">Desligado: os chamados abertos pelo WhatsApp não recebem Unidade e Setor.</div>');
+      }
+
       var corpo =
          '<div class="row g-4 mt-1 wae-cli-corpo">' +
             '<div class="col-xl-4">' +
@@ -130,19 +182,15 @@
                '<label class="form-label">Requerente padrão dos chamados</label>' +
                '<div class="mb-1" data-requerente="' + c.entities_id + '"><span class="text-secondary small">Carregando...</span></div>' +
                '<div class="form-hint mb-3">Usado quando quem fala é um contato sem usuário no GLPI.</div>' +
+               '<label class="form-label">Categoria dos chamados</label>' +
+               '<select class="form-select mb-1" data-cli-campo="itilcategories_id"' + dis + '>' + opcoes(categorias, c.itilcategories_id, 'Padrão da aba Regras') + '</select>' +
+               '<div class="form-hint mb-3">Um bloco "Abrir registro" com categoria própria no fluxo tem prioridade.</div>' +
                '<label class="form-label">Observação interna</label>' +
                '<input type="text" class="form-control" data-cli-obs="' + c.entities_id + '" value="' + e(c.observacao) + '" maxlength="255"' + dis + '>' +
             '</div>' +
             '<div class="col-xl-4">' +
-               '<h4 class="wae-cli-titulo"><i class="ti ti-key me-1"></i>Códigos de acesso</h4>' +
-               '<table class="table table-sm table-vcenter mb-2"><thead><tr><th>Código</th><th>Descrição</th><th class="text-center">Ativo</th><th></th></tr></thead>' +
-               '<tbody>' + (codigos || '<tr><td colspan="4" class="text-secondary small">Nenhum código.</td></tr>') + '</tbody></table>' +
-               (podeEditar ?
-                  '<div class="input-group input-group-sm">' +
-                     '<input type="text" class="form-control font-monospace" data-novo-codigo placeholder="Novo código" maxlength="60">' +
-                     '<button type="button" class="btn btn-outline-secondary" data-gerar-codigo title="Gerar código"><i class="ti ti-wand"></i></button>' +
-                     '<button type="button" class="btn btn-primary" data-add-codigo><i class="ti ti-plus"></i></button>' +
-                  '</div>' : '') +
+               '<h4 class="wae-cli-titulo"><i class="ti ti-building-community me-1"></i>Unidade e Setor (plugin Botões)</h4>' +
+               blocoBotoes +
             '</div>' +
             '<div class="col-xl-4">' +
                '<h4 class="wae-cli-titulo"><i class="ti ti-address-book me-1"></i>Contatos (WhatsApp)</h4>' +
@@ -154,6 +202,20 @@
                      '<input type="text" class="form-control" data-novo-contato-tel data-mascara placeholder="(71) 99999-9999">' +
                      '<button type="button" class="btn btn-primary" data-add-contato><i class="ti ti-plus"></i></button>' +
                   '</div>' : '') +
+            '</div>' +
+            '<div class="col-12">' +
+               '<h4 class="wae-cli-titulo"><i class="ti ti-key me-1"></i>Códigos de acesso</h4>' +
+               '<div class="table-responsive"><table class="table table-sm table-vcenter mb-2"><thead><tr>' +
+                  '<th>Código</th><th>Descrição</th><th>Categoria</th>' + (comBotoes ? '<th>Unidade</th><th>Setor</th>' : '') +
+                  '<th class="text-center">Ativo</th><th></th></tr></thead>' +
+               '<tbody>' + (codigos || '<tr><td colspan="' + colunasCodigo + '" class="text-secondary small">Nenhum código.</td></tr>') + '</tbody></table></div>' +
+               (podeEditar ?
+                  '<div class="input-group input-group-sm wae-cli-novo-codigo">' +
+                     '<input type="text" class="form-control font-monospace" data-novo-codigo placeholder="Novo código" maxlength="60">' +
+                     '<button type="button" class="btn btn-outline-secondary" data-gerar-codigo title="Gerar código"><i class="ti ti-wand"></i></button>' +
+                     '<button type="button" class="btn btn-primary" data-add-codigo><i class="ti ti-plus me-1"></i>Adicionar código</button>' +
+                  '</div>' : '') +
+               '<div class="form-hint mt-1">Sem categoria, unidade ou setor no código, valem os do cliente. Um código por unidade faz cada equipe abrir chamados já na unidade certa.</div>' +
             '</div>' +
          '</div>';
 
@@ -213,6 +275,11 @@
          descricao: linha.querySelector('[data-campo="descricao"]').value.trim(),
          is_ativo: linha.querySelector('[data-campo="is_ativo"]').checked ? 1 : 0
       };
+      // Categoria, Unidade e Setor proprios do codigo (so os que estao na tela)
+      ['itilcategories_id', 'unidade_id', 'setor'].forEach(function (campo) {
+         var el = linha.querySelector('[data-campo="' + campo + '"]');
+         if (el) { dados[campo] = el.value; }
+      });
       return WAE.pedir('codigo_salvar', dados, 'POST').then(function (r) {
          var campo = linha.querySelector('[data-campo="codigo"]');
          if (!r.sucesso) {
@@ -224,7 +291,12 @@
          var cliente = acharCliente(entities_id);
          if (cliente) {
             cliente.codigos.forEach(function (k) {
-               if (String(k.id) === String(dados.id)) { k.codigo = dados.codigo; k.descricao = dados.descricao; k.is_ativo = dados.is_ativo; }
+               if (String(k.id) === String(dados.id)) {
+                  k.codigo = dados.codigo; k.descricao = dados.descricao; k.is_ativo = dados.is_ativo;
+                  if (dados.itilcategories_id !== undefined) { k.itilcategories_id = parseInt(dados.itilcategories_id, 10) || 0; }
+                  if (dados.unidade_id !== undefined) { k.unidade_id = parseInt(dados.unidade_id, 10) || 0; }
+                  if (dados.setor !== undefined) { k.setor = dados.setor; }
+               }
             });
             atualizarResumo(entities_id);
          }
@@ -374,6 +446,28 @@
                var c = acharCliente(entities_id);
                if (c) { c.is_ativo = alvo.checked ? 1 : 0; atualizarResumo(entities_id); }
                WAE.avisar(alvo.checked ? 'Cliente ativado.' : 'Cliente desativado: os codigos dele deixam de valer.');
+            });
+            return;
+         }
+
+         // Categoria, Unidade/Setor do Botoes e a chave que liga esse preenchimento
+         if (alvo.hasAttribute('data-cli-campo')) {
+            var campo = alvo.getAttribute('data-cli-campo');
+            var valor = alvo.type === 'checkbox' ? (alvo.checked ? 1 : 0) : alvo.value;
+            var envio = { entities_id: entities_id };
+            envio[campo] = valor;
+            WAE.pedir('cliente_salvar', envio, 'POST').then(function (r) {
+               if (!r.sucesso) { sinalizar(alvo, false); WAE.avisar('Nao foi possivel gravar.', true); return; }
+               var c = acharCliente(entities_id);
+               if (campo === 'usar_botoes') {
+                  // Mostra ou esconde Unidade/Setor (do cliente e dos codigos)
+                  if (c) { c.usar_botoes = valor; }
+                  desenhar();
+                  WAE.avisar(valor ? 'Unidade e Setor serão preenchidos nos chamados deste cliente.' : 'Unidade e Setor desligados para este cliente.');
+                  return;
+               }
+               if (c) { c[campo] = campo === 'setor' ? valor : (parseInt(valor, 10) || 0); }
+               sinalizar(alvo, true);
             });
             return;
          }

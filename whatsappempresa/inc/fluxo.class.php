@@ -983,17 +983,18 @@ class PluginWhatsappempresaFluxo {
    /**
     * Marca o numero como identificado pelo tempo configurado
     */
-   static function liberarAcesso(string $telefone, int $users_id, array $contexto = [], int $entities_id = 0, int $contatos_id = 0): void {
+   static function liberarAcesso(string $telefone, int $users_id, array $contexto = [], int $entities_id = 0, int $contatos_id = 0, int $codigos_id = 0): void {
       $minutos = self::minutosDaSessao();
 
-      // Entidade do cliente e contato ficam em colunas proprias: o contexto e limpo a cada etapa
+      // Cliente, contato e codigo ficam em colunas proprias: o contexto e limpo a cada etapa
       self::definirEtapa($telefone, 'menu', $contexto, [
          'autenticado'     => 1,
          'autenticado_ate' => $minutos > 0 ? date('Y-m-d H:i:s', time() + ($minutos * 60)) : null,
          'users_id'        => $users_id,
          'tentativas'      => 0,
          'entities_id'     => $entities_id,
-         'contatos_id'     => $contatos_id
+         'contatos_id'     => $contatos_id,
+         'codigos_id'      => $codigos_id
       ]);
    }
 
@@ -1006,7 +1007,8 @@ class PluginWhatsappempresaFluxo {
          (int)$identificado['users_id'],
          $contexto,
          (int)$identificado['entities_id'],
-         (int)$identificado['contatos_id']
+         (int)$identificado['contatos_id'],
+         (int)($identificado['codigos_id'] ?? 0)
       );
    }
 
@@ -1470,6 +1472,10 @@ class PluginWhatsappempresaFluxo {
       if ((int)($contexto['entities_id'] ?? 0) > 0 && (int)$identificado['contatos_id'] === 0) {
          $identificado['entities_id'] = (int)$contexto['entities_id'];
       }
+      // Codigo aceito antes do telefone: vale para o mesmo cliente
+      if ((int)($contexto['codigos_id'] ?? 0) > 0 && (int)$identificado['entities_id'] === (int)($contexto['entities_id'] ?? 0)) {
+         $identificado['codigos_id'] = (int)$contexto['codigos_id'];
+      }
 
       self::liberarIdentificado($telefone, $identificado, $contexto);
 
@@ -1529,11 +1535,12 @@ class PluginWhatsappempresaFluxo {
 
       if ($users_id <= 0) {
          self::gravarSessao($telefone, ['tentativas' => 0]);
-         return self::pedirTelefone($telefone, ['entities_id' => $entidadeCodigo]);
+         return self::pedirTelefone($telefone, ['entities_id' => $entidadeCodigo, 'codigos_id' => (int)$codigo['id']]);
       }
 
-      // O codigo define o cliente atendido, mesmo para usuarios do GLPI
+      // O codigo define o cliente atendido (e a categoria/unidade/setor dos chamados), mesmo para usuarios do GLPI
       $identificado['entities_id'] = $entidadeCodigo;
+      $identificado['codigos_id']  = (int)$codigo['id'];
       self::liberarIdentificado($telefone, $identificado, ['entities_id' => $entidadeCodigo]);
 
       $minutos = self::minutosDaSessao();
@@ -2040,6 +2047,9 @@ class PluginWhatsappempresaFluxo {
 
       $conteudo = $texto . "\n\n" . PluginWhatsappempresaCliente::assinatura($telefone, $identidade);
 
+      // Categoria do codigo/cliente tem prioridade sobre a padrao da aba Regras
+      $parametros = PluginWhatsappempresaCliente::parametrosAbertura($telefone);
+
       $ticket = new Ticket();
       $tickets_id = $ticket->add([
          'name'                => $titulo,
@@ -2049,9 +2059,13 @@ class PluginWhatsappempresaFluxo {
          '_users_id_requester' => $users_id,
          'type'                => (int)PluginWhatsappempresaConfig::get('abertura_tipo', '1'),
          'urgency'             => (int)PluginWhatsappempresaConfig::get('abertura_urgencia', '3'),
-         'itilcategories_id'   => (int)PluginWhatsappempresaConfig::get('abertura_categoria', '0'),
+         'itilcategories_id'   => $parametros['categoria'] ?: (int)PluginWhatsappempresaConfig::get('abertura_categoria', '0'),
          'status'              => Ticket::INCOMING
       ]);
+
+      if ($tickets_id) {
+         PluginWhatsappempresaCliente::gravarCamposBotoes('Ticket', (int)$tickets_id, $parametros, $telefone, $identidade);
+      }
 
       self::definirEtapa($telefone, 'menu', []);
 
