@@ -37,6 +37,19 @@ class PluginWhatsappempresaServidor {
    static function pastaApp(): string  { return self::base() . '/app'; }
    static function pastaAuth(): string { return self::base() . '/auth'; }
    static function pastaRun(): string  { return self::base() . '/run'; }
+   static function pastaMidia(): string { return self::base() . '/midia'; }
+
+   /**
+    * Caminho absoluto de um arquivo de midia a partir do caminho relativo gravado no banco.
+    * Recusa qualquer coisa fora da pasta de midia.
+    */
+   static function caminhoMidia(string $relativo): ?string {
+      if ($relativo === '' || !preg_match('#^[0-9]{6}/[A-Za-z0-9_.-]+$#', $relativo)) {
+         return null;
+      }
+      $caminho = self::pastaMidia() . '/' . $relativo;
+      return is_file($caminho) ? $caminho : null;
+   }
 
    static function arquivoLog(): string   { return self::pastaRun() . '/servidor.log'; }
    static function arquivoPid(): string   { return self::pastaRun() . '/servidor.pid'; }
@@ -46,7 +59,7 @@ class PluginWhatsappempresaServidor {
     * Cria a estrutura de pastas. Devolve a mensagem de erro ou null.
     */
    static function prepararPastas(): ?string {
-      foreach ([self::base(), self::pastaApp(), self::pastaAuth(), self::pastaRun()] as $pasta) {
+      foreach ([self::base(), self::pastaApp(), self::pastaAuth(), self::pastaRun(), self::pastaMidia()] as $pasta) {
          if (!is_dir($pasta)) {
             @mkdir($pasta, 0770, true);
          }
@@ -442,6 +455,7 @@ class PluginWhatsappempresaServidor {
          'WAE_TOKEN'        => (string)PluginWhatsappempresaConfig::get('token_interno'),
          'WAE_WEBHOOK'      => self::urlWebhook(),
          'WAE_AUTH'         => self::pastaAuth(),
+         'WAE_MIDIA'        => self::pastaMidia(),
          'WAE_TLS_INSEGURO' => PluginWhatsappempresaConfig::ativo('webhook_tls_inseguro') ? '1' : '0',
          'HOME'             => $run
       ];
@@ -972,13 +986,34 @@ class PluginWhatsappempresaServidor {
    /**
     * Aceita texto simples ou estrutura com botoes e lista clicavel
     */
-   static function enviarTexto(string $telefone, $conteudo): array {
+   static function enviarTexto(string $telefone, $conteudo, ?array $midia = null): array {
       $numero = PluginWhatsappempresaConfig::limparTelefone($telefone);
       if (strlen($numero) < 10) {
          return ['ok' => false, 'erro' => 'Telefone invalido', 'jid' => ''];
       }
 
       $corpo = ['telefone' => $numero];
+
+      // Imagem ou audio: o arquivo ja esta na pasta de midia, que o Node le direto
+      if ($midia !== null) {
+         $corpo['midia'] = [
+            'tipo'    => (string)$midia['tipo'],
+            'arquivo' => (string)$midia['arquivo'],
+            'mime'    => (string)$midia['mime']
+         ];
+         $corpo['texto'] = is_array($conteudo) ? (string)($conteudo['texto'] ?? '') : (string)$conteudo;
+
+         $r = self::requisitar('POST', '/enviar', $corpo, 60);
+         if (!$r['ok']) {
+            return ['ok' => false, 'erro' => $r['dados']['erro'] ?? 'Servidor WhatsApp indisponivel', 'jid' => ''];
+         }
+         return [
+            'ok'        => true,
+            'erro'      => null,
+            'jid'       => (string)($r['dados']['jid'] ?? ''),
+            'convertido' => $r['dados']['convertido'] ?? null
+         ];
+      }
 
       if (is_array($conteudo)) {
          $corpo['texto'] = (string)($conteudo['texto'] ?? '');

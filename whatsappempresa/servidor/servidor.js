@@ -11,6 +11,8 @@ import {
    makeCacheableSignalKeyStore,
    DisconnectReason,
    fetchLatestBaileysVersion,
+   downloadMediaMessage,
+   normalizeMessageContent,
    generateWAMessageFromContent,
    proto
 } from '@whiskeysockets/baileys';
@@ -21,6 +23,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PASTA_AUTH = process.env.WAE_AUTH && process.env.WAE_AUTH.trim() !== ''
    ? process.env.WAE_AUTH
    : path.join(__dirname, 'auth');
+// Imagens e audios trocados: a mesma pasta e lida pelo GLPI (caminho relativo AAAAMM/arquivo)
+const PASTA_MIDIA = process.env.WAE_MIDIA && process.env.WAE_MIDIA.trim() !== ''
+   ? process.env.WAE_MIDIA
+   : path.join(__dirname, 'midia');
 const PORTA   = parseInt(process.env.WAE_PORTA || '3456', 10);
 const TOKEN   = process.env.WAE_TOKEN || '';
 const WEBHOOK = process.env.WAE_WEBHOOK || '';
@@ -407,7 +413,7 @@ function extrairTexto(mensagem) {
 /**
  * Entrega a mensagem recebida ao GLPI e devolve as respostas
  */
-async function consultarGlpi(telefone, texto, jid, tentativa = 1) {
+async function consultarGlpi(telefone, texto, jid, tentativa = 1, midia = null) {
    if (!WEBHOOK) {
       registrar('Webhook nao configurado', 'a variavel WAE_WEBHOOK chegou vazia');
       return [];
@@ -420,7 +426,7 @@ async function consultarGlpi(telefone, texto, jid, tentativa = 1) {
             'Content-Type': 'application/json',
             'X-Token-Interno': TOKEN
          },
-         body: JSON.stringify({ telefone, texto, jid, token: TOKEN })
+         body: JSON.stringify({ telefone, texto, jid, token: TOKEN, midia })
       });
 
       const bruto = await resposta.text();
@@ -430,7 +436,7 @@ async function consultarGlpi(telefone, texto, jid, tentativa = 1) {
 
          if (resposta.status >= 500 && tentativa < 2) {
             await new Promise((r) => setTimeout(r, 1500));
-            return consultarGlpi(telefone, texto, jid, tentativa + 1);
+            return consultarGlpi(telefone, texto, jid, tentativa + 1, midia);
          }
 
          return [];
@@ -466,7 +472,7 @@ async function consultarGlpi(telefone, texto, jid, tentativa = 1) {
 
       if (tentativa < 2) {
          await new Promise((r) => setTimeout(r, 1500));
-         return consultarGlpi(telefone, texto, jid, tentativa + 1);
+         return consultarGlpi(telefone, texto, jid, tentativa + 1, midia);
       }
 
       return [];
@@ -493,6 +499,289 @@ async function confirmarEnvio(itens) {
    }
 }
 
+// ============================================
+// Midia: imagens e audios
+// ============================================
+
+const EXTENSOES = {
+   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+   'audio/ogg': 'ogg', 'audio/opus': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3',
+   'audio/aac': 'aac', 'audio/amr': 'amr', 'audio/webm': 'webm'
+};
+
+function anoMes() {
+   const d = new Date();
+   return String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+/**
+ * Grava o conteudo na pasta de midia e devolve o caminho relativo (AAAAMM/arquivo)
+ */
+function gravarMidia(buffer, extensao, prefixo) {
+   const mes = anoMes();
+   const pasta = path.join(PASTA_MIDIA, mes);
+   fs.mkdirSync(pasta, { recursive: true });
+   const nome = `${prefixo}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extensao}`;
+   fs.writeFileSync(path.join(pasta, nome), buffer);
+   return `${mes}/${nome}`;
+}
+
+/**
+ * Le um arquivo da pasta de midia recusando caminhos fora dela
+ */
+function lerMidia(relativo) {
+   if (!/^[0-9]{6}\/[A-Za-z0-9_.-]+$/.test(String(relativo || ''))) {
+      throw new Error('Caminho de midia invalido');
+   }
+   return fs.readFileSync(path.join(PASTA_MIDIA, relativo));
+}
+
+function midiaDaMensagem(mensagem) {
+   const conteudo = normalizeMessageContent(mensagem.message) || {};
+   if (conteudo.imageMessage) return { tipo: 'imagem', no: conteudo.imageMessage };
+   if (conteudo.audioMessage) return { tipo: 'audio', no: conteudo.audioMessage };
+   return null;
+}
+
+async function baixarMidia(mensagem, info) {
+   const buffer = await downloadMediaMessage(mensagem, 'buffer', {}, {
+      logger: registrador,
+      reuploadRequest: socket.updateMediaMessage
+   });
+   const mime = String(info.no.mimetype || (info.tipo === 'audio' ? 'audio/ogg' : 'image/jpeg')).split(';')[0].trim();
+   const extensao = EXTENSOES[mime] || (info.tipo === 'audio' ? 'ogg' : 'jpg');
+   return { tipo: info.tipo, arquivo: gravarMidia(buffer, extensao, 'wa'), mime };
+}
+
+// ============================================
+// Conversao WebM (gravado no navegador) -> OGG/Opus (nota de voz do WhatsApp)
+// Troca so o recipiente: o audio Opus e copiado sem recodificar.
+// ============================================
+
+function lerVint(buf, pos, manterMarcador) {
+   const primeiro = buf[pos];
+   if (primeiro === undefined) return null;
+   let tamanho = 1;
+   let mascara = 0x80;
+   while (tamanho <= 8 && !(primeiro & mascara)) { mascara >>= 1; tamanho++; }
+   if (tamanho > 8 || pos + tamanho > buf.length) return null;
+   let valor = manterMarcador ? primeiro : (primeiro & (mascara - 1));
+   let desconhecido = (primeiro & (mascara - 1)) === (mascara - 1);
+   for (let i = 1; i < tamanho; i++) {
+      valor = valor * 256 + buf[pos + i];
+      if (buf[pos + i] !== 0xff) desconhecido = false;
+   }
+   return { valor, tamanho, desconhecido: !manterMarcador && desconhecido };
+}
+
+function extrairOpusDoWebm(buf) {
+   // Elementos que so agrupam outros: entra neles sem pular (Segment e Cluster podem ter tamanho desconhecido)
+   const CONTEINERES = new Set([0x18538067, 0x1F43B675, 0x1654AE6B, 0xAE, 0xE1, 0xA0]);
+   const pacotes = [];
+   let trilhaAudio = null;
+   let trilhaAtual = null;
+   let codecAtual = '';
+   let cabecalho = null;
+   let canais = 1;
+   let pos = 0;
+
+   while (pos < buf.length) {
+      const id = lerVint(buf, pos, true);
+      if (!id) break;
+      const tam = lerVint(buf, pos + id.tamanho, false);
+      if (!tam) break;
+      const inicio = pos + id.tamanho + tam.tamanho;
+      const fim = tam.desconhecido ? buf.length : Math.min(buf.length, inicio + tam.valor);
+
+      if (CONTEINERES.has(id.valor)) {
+         if (id.valor === 0xAE) { trilhaAtual = null; codecAtual = ''; }
+         pos = inicio;
+         continue;
+      }
+
+      const dados = buf.subarray(inicio, fim);
+      switch (id.valor) {
+         case 0xD7: // TrackNumber
+            trilhaAtual = dados.reduce((a, b) => a * 256 + b, 0);
+            if (codecAtual === 'A_OPUS') trilhaAudio = trilhaAtual;
+            break;
+         case 0x86: // CodecID
+            codecAtual = dados.toString('latin1');
+            if (codecAtual === 'A_OPUS' && trilhaAtual !== null) trilhaAudio = trilhaAtual;
+            break;
+         case 0x63A2: // CodecPrivate (OpusHead)
+            if (codecAtual === 'A_OPUS' || dados.subarray(0, 8).toString('latin1') === 'OpusHead') cabecalho = Buffer.from(dados);
+            break;
+         case 0x9F: // Channels
+            canais = dados[0] || 1;
+            break;
+         case 0xA3: // SimpleBlock
+         case 0xA1: { // Block
+            const trilha = lerVint(dados, 0, false);
+            if (!trilha) break;
+            if (trilhaAudio !== null && trilha.valor !== trilhaAudio) break;
+            const flags = dados[trilha.tamanho + 2];
+            if ((flags & 0x06) !== 0) break; // quadros agrupados (lacing) nao sao usados pelos navegadores com Opus
+            pacotes.push(Buffer.from(dados.subarray(trilha.tamanho + 3)));
+            break;
+         }
+      }
+      pos = fim;
+   }
+
+   if (!cabecalho) {
+      cabecalho = Buffer.alloc(19);
+      cabecalho.write('OpusHead', 0, 'latin1');
+      cabecalho[8] = 1;
+      cabecalho[9] = canais;
+      cabecalho.writeUInt16LE(312, 10);
+      cabecalho.writeUInt32LE(48000, 12);
+   }
+
+   return { cabecalho, pacotes };
+}
+
+function amostrasDoPacoteOpus(pacote) {
+   if (!pacote.length) return 0;
+   const toc = pacote[0];
+   const config = toc >> 3;
+   let porQuadro;
+   if (config < 12) porQuadro = [480, 960, 1920, 2880][config % 4];
+   else if (config < 16) porQuadro = [480, 960][config % 2];
+   else porQuadro = [120, 240, 480, 960][config % 4];
+   const c = toc & 0x03;
+   const quadros = c === 0 ? 1 : (c === 3 ? (pacote[1] & 0x3F) : 2);
+   return porQuadro * quadros;
+}
+
+const TABELA_CRC = (() => {
+   const t = new Uint32Array(256);
+   for (let i = 0; i < 256; i++) {
+      let r = i << 24;
+      for (let j = 0; j < 8; j++) r = (r & 0x80000000) ? ((r << 1) ^ 0x04C11DB7) : (r << 1);
+      t[i] = r >>> 0;
+   }
+   return t;
+})();
+
+function crcOgg(buf) {
+   let crc = 0;
+   for (let i = 0; i < buf.length; i++) {
+      crc = ((crc << 8) ^ TABELA_CRC[((crc >>> 24) ^ buf[i]) & 0xff]) >>> 0;
+   }
+   return crc >>> 0;
+}
+
+function paginaOgg(pacotes, granulo, serie, sequencia, tipo) {
+   const lacos = [];
+   for (const p of pacotes) {
+      let resta = p.length;
+      while (resta >= 255) { lacos.push(255); resta -= 255; }
+      lacos.push(resta);
+   }
+   const topo = Buffer.alloc(27 + lacos.length);
+   topo.write('OggS', 0, 'latin1');
+   topo[4] = 0;
+   topo[5] = tipo;
+   topo.writeBigInt64LE(BigInt(granulo), 6);
+   topo.writeUInt32LE(serie, 14);
+   topo.writeUInt32LE(sequencia, 18);
+   topo.writeUInt32LE(0, 22);
+   topo[26] = lacos.length;
+   Buffer.from(lacos).copy(topo, 27);
+   const pagina = Buffer.concat([topo, ...pacotes]);
+   pagina.writeUInt32LE(crcOgg(pagina), 22);
+   return pagina;
+}
+
+function webmParaOgg(buf) {
+   const { cabecalho, pacotes } = extrairOpusDoWebm(buf);
+   if (!pacotes.length) {
+      throw new Error('Nenhum audio Opus encontrado na gravacao');
+   }
+
+   const serie = Math.floor(Math.random() * 0xffffffff) >>> 0;
+   const fornecedor = Buffer.from('whatsappempresa', 'latin1');
+   const tags = Buffer.alloc(8 + 4 + fornecedor.length + 4);
+   tags.write('OpusTags', 0, 'latin1');
+   tags.writeUInt32LE(fornecedor.length, 8);
+   fornecedor.copy(tags, 12);
+   tags.writeUInt32LE(0, 12 + fornecedor.length);
+
+   const paginas = [paginaOgg([cabecalho], 0, serie, 0, 0x02), paginaOgg([tags], 0, serie, 1, 0x00)];
+   let sequencia = 2;
+   let granulo = 0;
+   let grupo = [];
+   let segmentos = 0;
+
+   pacotes.forEach((pacote, i) => {
+      const precisa = Math.floor(pacote.length / 255) + 1;
+      if (grupo.length && (segmentos + precisa > 255 || grupo.length >= 50)) {
+         paginas.push(paginaOgg(grupo, granulo, serie, sequencia++, 0x00));
+         grupo = [];
+         segmentos = 0;
+      }
+      grupo.push(pacote);
+      segmentos += precisa;
+      granulo += amostrasDoPacoteOpus(pacote);
+      if (i === pacotes.length - 1) {
+         paginas.push(paginaOgg(grupo, granulo, serie, sequencia++, 0x04));
+      }
+   });
+
+   return { ogg: Buffer.concat(paginas), segundos: Math.round(granulo / 48000) };
+}
+
+/**
+ * Envia imagem ou audio tentando cada endereco conhecido do contato (LID primeiro)
+ */
+async function enviarMidia(telefone, midia, legenda) {
+   if (!conectado || !socket) {
+      throw new Error('WhatsApp nao esta conectado');
+   }
+
+   let buffer = lerMidia(midia.arquivo);
+   let mime = String(midia.mime || '').split(';')[0].trim();
+   let convertido = null;
+   let conteudo;
+
+   if (midia.tipo === 'audio') {
+      // Nota de voz do WhatsApp so toca OGG/Opus; o Chrome grava WebM/Opus
+      if (mime === 'audio/webm' || mime === 'video/webm') {
+         const { ogg, segundos } = webmParaOgg(buffer);
+         buffer = ogg;
+         mime = 'audio/ogg';
+         convertido = { arquivo: gravarMidia(ogg, 'ogg', 'glpi'), mime, segundos };
+      }
+      conteudo = mime === 'audio/ogg'
+         ? { audio: buffer, mimetype: 'audio/ogg; codecs=opus', ptt: true }
+         : { audio: buffer, mimetype: mime || 'audio/mp4', ptt: false };
+   } else {
+      conteudo = { image: buffer, mimetype: mime || 'image/jpeg' };
+      if (legenda) conteudo.caption = legenda;
+   }
+
+   const jid = await resolverJid(telefone);
+   const enderecos = candidatosDeEnvio(jid, telefone);
+   const falhas = [];
+
+   for (const endereco of enderecos) {
+      try {
+         await enviarGuardando(endereco, conteudo);
+         // Audio nao tem legenda no WhatsApp: o texto vai em seguida
+         if (midia.tipo === 'audio' && legenda) {
+            await enviarGuardando(endereco, { text: legenda });
+         }
+         return { jid: endereco, convertido };
+      } catch (e) {
+         falhas.push(`${endereco}: ${e.message}`);
+         registrar('Endereco recusado pelo WhatsApp', `${endereco} - ${e.message}`);
+      }
+   }
+
+   throw new Error('Nenhum endereco aceitou a midia (' + falhas.join(' | ') + ')');
+}
+
 async function tratarRecebida(mensagem) {
    const jid = mensagem.key?.remoteJid || '';
 
@@ -502,8 +791,21 @@ async function tratarRecebida(mensagem) {
    if (jid.endsWith('@broadcast')) return;
    if (jid === 'status@broadcast') return;
 
-   const texto = extrairTexto(mensagem).trim();
-   if (texto === '') return;
+   let texto = extrairTexto(mensagem).trim();
+   const infoMidia = midiaDaMensagem(mensagem);
+   if (texto === '' && !infoMidia) return;
+
+   let midia = null;
+   if (infoMidia) {
+      try {
+         midia = await baixarMidia(mensagem, infoMidia);
+      } catch (e) {
+         registrar('Falha ao baixar midia', `${jid} - ${e.message}`);
+         if (texto === '') {
+            texto = infoMidia.tipo === 'audio' ? '🎤 Áudio (nao foi possivel baixar)' : '📷 Imagem (nao foi possivel baixar)';
+         }
+      }
+   }
 
    const ehLid = jid.endsWith('@lid');
    let telefone = await telefoneDaMensagem(mensagem);
@@ -518,13 +820,14 @@ async function tratarRecebida(mensagem) {
    // Guarda o jid verdadeiro para os envios que o GLPI fizer depois
    associar(telefone, jid);
 
-   registrar('Mensagem recebida', `${telefone}${ehLid ? ' (lid ' + numeroDoJid(jid) + ')' : ''}: ${texto.substring(0, 60)}`);
+   registrar('Mensagem recebida', `${telefone}${ehLid ? ' (lid ' + numeroDoJid(jid) + ')' : ''}: `
+      + (midia ? `[${midia.tipo} ${midia.arquivo}] ` : '') + texto.substring(0, 60));
 
    // Enfileira por contato: mensagens seguidas entram na ordem, nenhuma e descartada
    const anterior = fila.get(jid) || Promise.resolve();
 
    const atual = anterior.then(async () => {
-      const respostas = await consultarGlpi(telefone, texto, jid);
+      const respostas = await consultarGlpi(telefone, texto, jid, 1, midia);
       const confirmacoes = [];
 
       for (const resposta of respostas) {
@@ -986,6 +1289,21 @@ const servidor = http.createServer(async (req, res) => {
 
    if (req.method === 'POST' && req.url === '/enviar') {
       const dados = await corpoDaRequisicao(req);
+
+      if (dados.telefone && dados.midia && dados.midia.arquivo) {
+         try {
+            const { jid: jidUsado, convertido } = await enviarMidia(dados.telefone, dados.midia, String(dados.texto || '').trim());
+            registrar('Midia enviada', `${dados.telefone} via ${jidUsado} - ${dados.midia.tipo}${convertido ? ' (convertido para OGG, ' + convertido.segundos + 's)' : ''}`);
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, jid: jidUsado, convertido }));
+         } catch (e) {
+            registrar('Falha no envio de midia', e.message);
+            res.writeHead(500);
+            res.end(JSON.stringify({ ok: false, erro: e.message }));
+         }
+         return;
+      }
+
       if (!dados.telefone || !dados.texto) {
          res.writeHead(400);
          res.end(JSON.stringify({ ok: false, erro: 'telefone e texto sao obrigatorios' }));

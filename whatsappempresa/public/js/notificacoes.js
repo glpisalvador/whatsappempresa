@@ -55,6 +55,75 @@
       return div.innerHTML;
    }
 
+   /**
+    * Visualizador de imagens em modal, usado aqui e na aba WhatsApp do chamado.
+    * Usa o modal do Bootstrap do GLPI; sem ele, uma camada propria com o mesmo visual.
+    */
+   if (!window.WAEVisualizador) {
+      window.WAEVisualizador = (function () {
+         var modal = null;
+         var instancia = null;
+
+         function criar() {
+            modal = document.createElement('div');
+            modal.className = 'modal fade wae-visualizador';
+            modal.id = 'wae-visualizador';
+            modal.tabIndex = -1;
+            modal.setAttribute('aria-hidden', 'true');
+            modal.innerHTML =
+               '<div class="modal-dialog modal-dialog-centered modal-xl">' +
+               '<div class="modal-content">' +
+               '<div class="modal-header py-2">' +
+               '<h5 class="modal-title"><i class="ti ti-photo me-2"></i>Imagem</h5>' +
+               '<a class="btn btn-sm btn-ghost-secondary ms-auto me-2" id="wae-visualizador-abrir" target="_blank" rel="noopener"><i class="ti ti-external-link me-1"></i>Abrir original</a>' +
+               '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>' +
+               '</div>' +
+               '<div class="modal-body text-center p-2">' +
+               '<img id="wae-visualizador-img" class="wae-visualizador-img" alt="Imagem">' +
+               '</div></div></div>';
+            document.body.appendChild(modal);
+
+            if (window.bootstrap && window.bootstrap.Modal) {
+               instancia = window.bootstrap.Modal.getOrCreateInstance(modal);
+            } else {
+               // Sem Bootstrap: fecha no X, no fundo e no Esc
+               modal.addEventListener('click', function (e) {
+                  if (e.target === modal || (e.target.closest && e.target.closest('[data-bs-dismiss]'))) { fechar(); }
+               });
+               document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { fechar(); } });
+            }
+         }
+
+         function fechar() {
+            if (instancia) { instancia.hide(); return; }
+            modal.classList.remove('show', 'wae-visualizador-aberto');
+         }
+
+         function abrir(url) {
+            if (!modal) { criar(); }
+            document.getElementById('wae-visualizador-img').src = url;
+            document.getElementById('wae-visualizador-abrir').href = url;
+            if (instancia) {
+               instancia.show();
+            } else {
+               modal.classList.add('show', 'wae-visualizador-aberto');
+            }
+         }
+
+         return { abrir: abrir, fechar: fechar };
+      })();
+   }
+
+   function midiaDoBalao(mensagem) {
+      if (mensagem.tipo_midia === 'imagem' && mensagem.midia_url) {
+         return '<img class="waen-midia-img" src="' + escapar(mensagem.midia_url) + '" alt="Imagem" loading="lazy" data-ampliar="' + escapar(mensagem.midia_url) + '">';
+      }
+      if (mensagem.tipo_midia === 'audio' && mensagem.midia_url) {
+         return '<audio class="waen-midia-audio" controls preload="metadata" src="' + escapar(mensagem.midia_url) + '"></audio>';
+      }
+      return '';
+   }
+
    function montarInterface() {
       var botao = document.createElement('button');
       botao.type = 'button';
@@ -81,6 +150,12 @@
 
       document.body.appendChild(botao);
       document.body.appendChild(painel);
+
+      document.getElementById('waen-mensagens').addEventListener('click', function (evento) {
+         if (evento.target.matches && evento.target.matches('img[data-ampliar]')) {
+            window.WAEVisualizador.abrir(evento.target.getAttribute('data-ampliar'));
+         }
+      });
 
       botao.addEventListener('click', function () {
          painel.classList.toggle('waen-aberto');
@@ -183,11 +258,14 @@
 
          caixa.innerHTML = resposta.mensagens.map(function (mensagem) {
             var classe = mensagem.direcao === 'saida' ? 'waen-balao waen-balao-saida' : 'waen-balao';
-            return '<div class="' + classe + '">' + escapar(mensagem.conteudo) +
+            return '<div class="' + classe + '">' + midiaDoBalao(mensagem) + escapar(mensagem.conteudo) +
                '<span class="waen-balao-meta">' + escapar(mensagem.data) + '</span></div>';
          }).join('');
 
          caixa.scrollTop = caixa.scrollHeight;
+         caixa.querySelectorAll('img.waen-midia-img').forEach(function (img) {
+            if (!img.complete) { img.addEventListener('load', function () { caixa.scrollTop = caixa.scrollHeight; }, { once: true }); }
+         });
       });
    }
 

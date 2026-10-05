@@ -2,6 +2,13 @@
 
 O arquivo para download de cada versão está em [Releases](https://github.com/glpisalvador/whatsappempresa/releases).
 
+## 3.1.0 — 2026-09-28
+
+Versão intermediária de 28/09/2026.
+
+
+**Arquivos alterados:** `front/ajax.php`, `front/webhook.php`, `hook.php`, `inc/conversa.class.php`, `inc/mensagem.class.php`, `inc/servidor.class.php`, `public/css/estilo.css`, `public/js/conversa.js`, `public/js/notificacoes.js`, `servidor/servidor.js`, `setup.php`
+
 ## 3.0.2 — 2026-09-28
 
 Versão intermediária de 28/09/2026.

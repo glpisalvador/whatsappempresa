@@ -106,11 +106,18 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
 
       echo '<div class="alert alert-warning wae-oculto" id="wae-aba-aviso"></div>';
 
-      echo '<div class="wae-chat" id="wae-aba-chat"><div class="text-secondary">Carregando conversas...</div></div>';
+      // tabindex: clicando na conversa ela recebe o foco e aceita Ctrl+V de imagens
+      echo '<div class="wae-chat" id="wae-aba-chat" tabindex="0"><div class="text-secondary">Carregando conversas...</div></div>';
 
-      // Uma linha: Enter envia, Shift+Enter quebra linha
-      echo '<div class="input-group align-items-start mt-3">';
-      echo '<textarea class="form-control" id="wae-aba-texto" rows="1" style="resize:none" placeholder="Escreva a mensagem e tecle Enter"></textarea>';
+      // Imagens coladas aguardando envio
+      echo '<div class="wae-anexos wae-oculto" id="wae-aba-anexos"></div>';
+
+      // Uma linha: Enter envia, Shift+Enter quebra linha; Ctrl+V cola imagens
+      echo '<div class="input-group align-items-start mt-2">';
+      echo '<textarea class="form-control" id="wae-aba-texto" rows="1" style="resize:none" placeholder="Escreva a mensagem e tecle Enter (Ctrl+V cola imagens)"></textarea>';
+      echo '<span class="form-control wae-gravando wae-oculto" id="wae-aba-gravando"><span class="wae-ponto-gravando"></span><span id="wae-aba-relogio">0:00</span> Gravando audio...</span>';
+      echo '<button type="button" class="btn btn-outline-secondary wae-oculto" id="wae-aba-cancelar-gravacao" title="Descartar gravacao"><i class="ti ti-trash"></i></button>';
+      echo '<button type="button" class="btn btn-outline-secondary" id="wae-aba-gravar" title="Gravar audio"><i class="ti ti-microphone"></i></button>';
       echo '<button type="button" class="btn btn-primary" id="wae-aba-enviar"><i class="ti ti-send me-1"></i>Enviar</button>';
       echo '</div>';
 
@@ -405,7 +412,7 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
    /**
     * Envio feito pelo tecnico (aba do chamado ou modal global)
     */
-   static function enviarDoTecnico(string $telefone, string $texto, int $tickets_id = 0, string $nomeContato = ''): array {
+   static function enviarDoTecnico(string $telefone, string $texto, int $tickets_id = 0, string $nomeContato = '', ?array $midia = null): array {
       global $DB;
 
       $numero      = PluginWhatsappempresaConfig::limparTelefone($telefone);
@@ -462,10 +469,15 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
          'fluxo'        => 'conversa',
          'tickets_id'   => $tickets_id,
          'users_id'     => $tecnicos_id,
-         'origem_tipo'  => 'humano'
+         'origem_tipo'  => 'humano',
+         'midia'        => $midia
       ]);
 
-      self::atualizarResumo($conversas_id, $texto);
+      $resumo = trim($texto);
+      if ($midia !== null) {
+         $resumo = PluginWhatsappempresaMensagem::rotuloDaMidia((string)$midia['tipo']) . ($resumo !== '' ? ' ' . $resumo : '');
+      }
+      self::atualizarResumo($conversas_id, $resumo);
 
       $jid = (string)($resultado['jid'] ?? '');
       if ($jid !== '') {
@@ -679,7 +691,12 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
                    . htmlescape($autor) . '</span>';
          }
 
-         $html .= self::formatarTextoWhatsapp((string)$mensagem['conteudo']);
+         $temMidia = !empty($mensagem['tipo_midia']) && !empty($mensagem['midia_arquivo']);
+         if ($temMidia) {
+            $html .= self::midiaNaTranscricao($mensagem, (int)$conversa['tickets_id'], $contato);
+         }
+
+         $html .= self::formatarTextoWhatsapp($temMidia ? PluginWhatsappempresaMensagem::legenda($mensagem) : (string)$mensagem['conteudo']);
 
          $html .= '<span style="' . $hora . '">' . ($data !== '' ? htmlescape(substr($data, 11, 5)) : '');
          if ($saida) {
@@ -695,6 +712,38 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       $html .= '</div>';
 
       return $html;
+   }
+
+   /**
+    * Imagem ou audio dentro do balao da transcricao, apontando para o documento do chamado
+    */
+   private static function midiaNaTranscricao(array $mensagem, int $tickets_id, string $contato): string {
+      global $CFG_GLPI;
+
+      $tipo    = (string)$mensagem['tipo_midia'];
+      $caminho = PluginWhatsappempresaServidor::caminhoMidia((string)$mensagem['midia_arquivo']);
+      $quando  = str_replace([' ', ':'], ['_', '-'], substr((string)$mensagem['date_creation'], 0, 16));
+      $ext     = pathinfo((string)$mensagem['midia_arquivo'], PATHINFO_EXTENSION);
+      $nome    = 'WhatsApp ' . ($tipo === 'audio' ? 'audio' : 'imagem') . ' ' . $quando . ' - '
+               . preg_replace('/[^\w .-]+/u', '', $contato) . '.' . $ext;
+
+      $documents_id = ($caminho !== null && $tickets_id > 0) ? self::criarDocumento($caminho, $nome, $tickets_id) : 0;
+
+      if ($documents_id <= 0) {
+         return '<span style="display:block;font-size:12px;color:rgba(17,27,33,0.55);font-style:italic;">'
+              . ($tipo === 'audio' ? '&#127908; Audio' : '&#128247; Imagem') . ' (arquivo indisponivel)</span>';
+      }
+
+      $url = $CFG_GLPI['root_doc'] . '/front/document.send.php?docid=' . $documents_id
+           . '&itemtype=Ticket&items_id=' . $tickets_id;
+
+      if ($tipo === 'audio') {
+         return '<audio controls preload="metadata" src="' . htmlescape($url) . '" style="display:block;width:260px;max-width:100%;height:40px;margin:2px 0;"></audio>'
+              . '<a href="' . htmlescape($url) . '" target="_blank" style="font-size:11px;color:rgba(0,128,105,0.9);">&#127908; baixar audio</a>';
+      }
+
+      return '<a href="' . htmlescape($url) . '" target="_blank" title="Abrir imagem em tamanho real">'
+           . '<img src="' . htmlescape($url) . '" alt="Imagem do WhatsApp" style="display:block;max-width:280px;width:100%;height:auto;border-radius:6px;margin:2px 0 3px;"></a>';
    }
 
    /**
@@ -820,6 +869,122 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
    // Listagens para a interface
    // ============================================
 
+   // ============================================
+   // Midia (imagens e audios)
+   // ============================================
+
+   const MIMES_IMAGEM = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+   const MIMES_AUDIO  = [
+      'audio/ogg' => 'ogg', 'audio/opus' => 'ogg', 'audio/webm' => 'webm', 'video/webm' => 'webm',
+      'audio/mp4' => 'm4a', 'video/mp4' => 'm4a', 'audio/x-m4a' => 'm4a', 'audio/mpeg' => 'mp3', 'audio/aac' => 'aac'
+   ];
+
+   static function urlMidia(int $mensagens_id): string {
+      global $CFG_GLPI;
+      return $CFG_GLPI['root_doc'] . '/plugins/whatsappempresa/front/ajax.php?acao=midia&id=' . $mensagens_id;
+   }
+
+   /**
+    * Quem pode ver a conversa: o tecnico dela ou quem enxerga o chamado
+    */
+   static function podeVerConversa(int $conversas_id): bool {
+      $conversa = self::porId($conversas_id);
+      if ($conversa === null) {
+         return false;
+      }
+      if ((int)$conversa['tecnicos_id'] === (int)Session::getLoginUserID()) {
+         return true;
+      }
+      $ticket = new Ticket();
+      return (int)$conversa['tickets_id'] > 0
+         && $ticket->getFromDB((int)$conversa['tickets_id'])
+         && $ticket->canViewItem();
+   }
+
+   /**
+    * Guarda o arquivo enviado pelo navegador na pasta de midia.
+    * Confere o tipo real pelo conteudo (nao pelo nome). Devolve a midia ou a mensagem de erro.
+    */
+   static function salvarUpload(array $arquivo, string $tipo): array|string {
+      if (($arquivo['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$arquivo['tmp_name'])) {
+         return ($arquivo['error'] ?? 0) === UPLOAD_ERR_INI_SIZE
+            ? 'Arquivo maior que o limite do servidor (' . ini_get('upload_max_filesize') . ').'
+            : 'O arquivo nao chegou ao servidor.';
+      }
+
+      $mime = (string)(new finfo(FILEINFO_MIME_TYPE))->file((string)$arquivo['tmp_name']);
+      $permitidos = $tipo === 'audio' ? self::MIMES_AUDIO : self::MIMES_IMAGEM;
+      if (!isset($permitidos[$mime])) {
+         return 'Tipo de arquivo nao aceito: ' . $mime . '.';
+      }
+
+      if (PluginWhatsappempresaServidor::prepararPastas() !== null) {
+         return 'A pasta de midia do plugin nao aceita escrita.';
+      }
+
+      $mes   = date('Ym');
+      $pasta = PluginWhatsappempresaServidor::pastaMidia() . '/' . $mes;
+      if (!is_dir($pasta)) {
+         @mkdir($pasta, 0770, true);
+      }
+
+      $nome = 'glpi-' . bin2hex(random_bytes(10)) . '.' . $permitidos[$mime];
+      if (!@move_uploaded_file((string)$arquivo['tmp_name'], $pasta . '/' . $nome)) {
+         return 'Nao foi possivel gravar o arquivo na pasta de midia.';
+      }
+
+      // Audio do navegador vem como video/webm no finfo; para o WhatsApp e audio
+      if ($tipo === 'audio' && $mime === 'video/webm') {
+         $mime = 'audio/webm';
+      }
+
+      return ['tipo' => $tipo, 'arquivo' => $mes . '/' . $nome, 'mime' => $mime];
+   }
+
+   /**
+    * Cria um documento nativo do GLPI com o arquivo de midia, vinculado ao chamado fora da
+    * linha do tempo (como as imagens coladas em acompanhamentos). Devolve o id ou 0.
+    */
+   static function criarDocumento(string $caminho, string $nomeExibido, int $tickets_id): int {
+      $ticket = new Ticket();
+      if (!is_file($caminho) || !$ticket->getFromDB($tickets_id)) {
+         return 0;
+      }
+
+      $prefixo = uniqid('wae', true) . '_';
+      $arquivo = $prefixo . basename($caminho);
+      if (!@copy($caminho, GLPI_TMP_DIR . '/' . $arquivo)) {
+         return 0;
+      }
+
+      $documento = new Document();
+      $documents_id = (int)$documento->add([
+         'name'              => $nomeExibido,
+         'entities_id'       => (int)$ticket->fields['entities_id'],
+         'is_recursive'      => 0,
+         '_filename'         => [$arquivo],
+         '_prefix_filename'  => [$prefixo],
+         '_only_if_upload_succeed' => 1
+      ]);
+
+      @unlink(GLPI_TMP_DIR . '/' . $arquivo);
+
+      if ($documents_id <= 0) {
+         return 0;
+      }
+
+      $vinculo = new Document_Item();
+      $vinculo->add([
+         'documents_id'      => $documents_id,
+         'itemtype'          => 'Ticket',
+         'items_id'          => $tickets_id,
+         'entities_id'       => (int)$ticket->fields['entities_id'],
+         'timeline_position' => CommonITILObject::NO_TIMELINE
+      ]);
+
+      return $documents_id;
+   }
+
    static function listarMensagens(int $conversas_id, int $limite = 80): array {
       global $DB;
 
@@ -832,10 +997,13 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       ]);
 
       foreach ($iterator as $linha) {
+         $temMidia = !empty($linha['tipo_midia']) && !empty($linha['midia_arquivo']);
          $itens[] = [
             'id'          => (int)$linha['id'],
             'direcao'     => $linha['direcao'],
-            'conteudo'    => (string)$linha['conteudo'],
+            'conteudo'    => $temMidia ? PluginWhatsappempresaMensagem::legenda($linha) : (string)$linha['conteudo'],
+            'tipo_midia'  => $temMidia ? (string)$linha['tipo_midia'] : '',
+            'midia_url'   => $temMidia ? self::urlMidia((int)$linha['id']) : '',
             'fluxo'       => $linha['fluxo'],
             'origem_tipo' => (string)($linha['origem_tipo'] ?? 'automacao'),
             'remetente'   => (string)($linha['remetente'] ?? ''),

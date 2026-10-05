@@ -86,6 +86,10 @@ function plugin_whatsappempresa_migrar(): void {
    plugin_whatsappempresa_coluna($mensagens, 'destinatario', "varchar(30) DEFAULT NULL");
    plugin_whatsappempresa_coluna($mensagens, 'origem_tipo', "varchar(20) NOT NULL DEFAULT 'automacao'");
    plugin_whatsappempresa_coluna($mensagens, 'fluxos_id', "int unsigned NOT NULL DEFAULT 0");
+   // Imagens e audios: arquivo na pasta de midia do plugin (caminho relativo AAAAMM/arquivo)
+   plugin_whatsappempresa_coluna($mensagens, 'tipo_midia', "varchar(10) DEFAULT NULL");
+   plugin_whatsappempresa_coluna($mensagens, 'midia_arquivo', "varchar(255) DEFAULT NULL");
+   plugin_whatsappempresa_coluna($mensagens, 'midia_mime', "varchar(100) DEFAULT NULL");
    plugin_whatsappempresa_alargar($mensagens, 'fluxo', "varchar(60) NOT NULL DEFAULT 'menu'");
    plugin_whatsappempresa_indice($mensagens, 'direcao', 'direcao');
    plugin_whatsappempresa_indice($mensagens, 'origem_tipo', 'origem_tipo');
@@ -240,6 +244,9 @@ function plugin_whatsappempresa_install(): bool {
          `fluxo` varchar(60) NOT NULL DEFAULT 'menu',
          `fluxos_id` int unsigned NOT NULL DEFAULT 0,
          `conteudo` longtext,
+         `tipo_midia` varchar(10) DEFAULT NULL,
+         `midia_arquivo` varchar(255) DEFAULT NULL,
+         `midia_mime` varchar(100) DEFAULT NULL,
          `tickets_id` int unsigned NOT NULL DEFAULT 0,
          `users_id` int unsigned NOT NULL DEFAULT 0,
          `status_envio` varchar(20) NOT NULL DEFAULT 'ok',
