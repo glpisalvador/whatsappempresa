@@ -106,6 +106,14 @@ function plugin_whatsappempresa_migrar(): void {
    plugin_whatsappempresa_coluna($mensagens, 'tipo_midia', "varchar(10) DEFAULT NULL");
    plugin_whatsappempresa_coluna($mensagens, 'midia_arquivo', "varchar(255) DEFAULT NULL");
    plugin_whatsappempresa_coluna($mensagens, 'midia_mime', "varchar(100) DEFAULT NULL");
+   // Citacoes e reacoes: id da mensagem no WhatsApp, mensagem citada e emojis
+   plugin_whatsappempresa_coluna($mensagens, 'wa_id', "varchar(80) DEFAULT NULL");
+   plugin_whatsappempresa_coluna($mensagens, 'citada_id', "int unsigned NOT NULL DEFAULT 0");
+   plugin_whatsappempresa_coluna($mensagens, 'citada_texto', "varchar(500) DEFAULT NULL");
+   plugin_whatsappempresa_coluna($mensagens, 'reacao_cliente', "varchar(16) DEFAULT NULL");
+   plugin_whatsappempresa_coluna($mensagens, 'reacao_atendente', "varchar(16) DEFAULT NULL");
+   plugin_whatsappempresa_coluna($mensagens, 'date_mod', "timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+   plugin_whatsappempresa_indice($mensagens, 'wa_id', 'wa_id');
    plugin_whatsappempresa_alargar($mensagens, 'fluxo', "varchar(60) NOT NULL DEFAULT 'menu'");
    plugin_whatsappempresa_indice($mensagens, 'direcao', 'direcao');
    plugin_whatsappempresa_indice($mensagens, 'origem_tipo', 'origem_tipo');

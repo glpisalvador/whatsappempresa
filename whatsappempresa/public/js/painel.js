@@ -438,8 +438,159 @@
       WAE.podeEditar = !!pode;
    }
 
+   // ============================================
+   // Aba Mensagens: todas as mensagens em tempo real
+   // ============================================
+
+   var CORES_TIPO = {
+      fluxo: 'bg-purple-lt', servidor: 'bg-secondary-lt', usuario: 'bg-blue-lt',
+      contato_glpi: 'bg-cyan-lt', contato_cliente: 'bg-green-lt', desconhecido: 'bg-yellow-lt'
+   };
+
+   function formatarNumero(numero) {
+      var d = String(numero || '').replace(/\D/g, '');
+      if (d.length === 13 && d.indexOf('55') === 0) { return '+55 (' + d.slice(2, 4) + ') ' + d.slice(4, 9) + '-' + d.slice(9); }
+      if (d.length === 12 && d.indexOf('55') === 0) { return '+55 (' + d.slice(2, 4) + ') ' + d.slice(4, 8) + '-' + d.slice(8); }
+      if (d.length === 11) { return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7); }
+      return d || '-';
+   }
+
+   function linhaHistorico(m, nova) {
+      var e = escapar;
+      var entrada = m.direcao === 'entrada';
+      var midia = m.midia === 'imagem' ? '<i class="ti ti-photo me-1"></i>' : (m.midia === 'audio' ? '<i class="ti ti-microphone me-1"></i>' : '');
+      var envio = entrada
+         ? '<i class="ti ti-arrow-bar-to-down text-secondary" title="Recebida"></i>'
+         : (m.status === 'erro'
+            ? '<i class="ti ti-alert-triangle text-danger" title="' + e(m.erro || 'Falha no envio') + '"></i>'
+            : (m.status === 'pendente' ? '<i class="ti ti-clock text-warning" title="Aguardando confirmação"></i>' : '<i class="ti ti-checks text-success" title="Enviada"></i>'));
+
+      return '<tr class="' + (nova ? 'wae-hist-nova' : '') + '" data-id="' + m.id + '">' +
+         '<td class="text-nowrap small">' + e(m.data) + '</td>' +
+         '<td>' + (entrada
+            ? '<span class="badge bg-green-lt" title="Recebida"><i class="ti ti-arrow-down-left"></i></span>'
+            : '<span class="badge bg-blue-lt" title="Enviada"><i class="ti ti-arrow-up-right"></i></span>') + '</td>' +
+         '<td><div class="font-monospace small text-nowrap">' + e(formatarNumero(m.de)) + '</div><div class="small text-secondary">' + e(m.de_nome || '') + '</div></td>' +
+         '<td><div class="font-monospace small text-nowrap">' + e(formatarNumero(m.para)) + '</div><div class="small text-secondary">' + e(m.para_nome || '') + '</div></td>' +
+         '<td><span class="badge ' + (CORES_TIPO[m.tipo] || 'bg-secondary-lt') + '">' + e(m.tipo_nome) + '</span>' +
+            (m.detalhe ? '<div class="small text-secondary">' + e(m.detalhe) + '</div>' : '') + '</td>' +
+         '<td>' + (m.tickets_id ? '<a href="' + e(m.ticket_url) + '" target="_blank">#' + m.tickets_id + '</a>' : '<span class="text-secondary">-</span>') + '</td>' +
+         '<td class="wae-hist-texto">' +
+            (m.citada ? '<div class="wae-hist-citada" title="Resposta a esta mensagem"><i class="ti ti-corner-up-left me-1"></i>' + e(m.citada) + '</div>' : '') +
+            midia + e(m.texto) + (m.reacoes ? ' <span class="wae-hist-reacoes">' + e(m.reacoes) + '</span>' : '') +
+         '</td>' +
+         '<td class="text-center">' + envio + '</td>' +
+      '</tr>';
+   }
+
+   function iniciarMensagens(id) {
+      var caixa = document.getElementById(id);
+      if (!caixa || caixa.getAttribute('data-iniciado')) { return; }
+      caixa.setAttribute('data-iniciado', '1');
+
+      var corpo = document.getElementById('wae-hist-linhas');
+      var maiorId = 0;
+      var menorId = 0;
+      var total = 0;
+      var pausado = false;
+      var buscando = false;
+      var timer = null;
+
+      function filtros(extra) {
+         return Object.assign({
+            busca: document.getElementById('wae-hist-busca').value.trim(),
+            direcao: document.getElementById('wae-hist-direcao').value,
+            tipo: document.getElementById('wae-hist-tipo').value,
+            com_chamado: document.getElementById('wae-hist-chamado').checked ? 1 : 0
+         }, extra || {});
+      }
+
+      function contar() {
+         document.getElementById('wae-hist-contagem').textContent = total + ' mensagem(ns) na tela';
+      }
+
+      function recarregar() {
+         buscando = true;
+         pedir('mensagens_ao_vivo', filtros({ limite: 100 })).then(function (r) {
+            buscando = false;
+            var itens = (r && r.itens) || [];
+            maiorId = r.maior_lido || (itens.length ? itens[0].id : 0);
+            menorId = r.ultimo_lido || (itens.length ? itens[itens.length - 1].id : 0);
+            total = itens.length;
+            corpo.innerHTML = itens.length
+               ? itens.map(function (m) { return linhaHistorico(m, false); }).join('')
+               : '<tr><td colspan="8" class="text-center text-secondary py-4">Nenhuma mensagem encontrada.</td></tr>';
+            document.getElementById('wae-hist-mais').disabled = itens.length < 100;
+            contar();
+         });
+      }
+
+      /** Busca so o que chegou depois da ultima mensagem mostrada */
+      function novidades() {
+         if (pausado || buscando || document.hidden || !document.body.contains(caixa)) { return; }
+         if (!maiorId) { recarregar(); return; }
+         buscando = true;
+         pedir('mensagens_ao_vivo', filtros({ depois: maiorId, limite: 200 })).then(function (r) {
+            buscando = false;
+            var itens = (r && r.itens) || [];
+            if (r && r.maior_lido) { maiorId = Math.max(maiorId, r.maior_lido); }
+            if (!itens.length) { return; }
+            if (!corpo.querySelector('tr[data-id]')) { corpo.innerHTML = ''; }
+            maiorId = Math.max(maiorId, itens[0].id);
+            corpo.insertAdjacentHTML('afterbegin', itens.map(function (m) { return linhaHistorico(m, true); }).join(''));
+            total += itens.length;
+            contar();
+            setTimeout(function () {
+               corpo.querySelectorAll('.wae-hist-nova').forEach(function (tr) { tr.classList.remove('wae-hist-nova'); });
+            }, 2500);
+         });
+      }
+
+      function maisAntigas() {
+         if (!menorId) { return; }
+         var botao = document.getElementById('wae-hist-mais');
+         botao.disabled = true;
+         pedir('mensagens_ao_vivo', filtros({ antes: menorId, limite: 100 })).then(function (r) {
+            var itens = (r && r.itens) || [];
+            menorId = r.ultimo_lido || menorId;
+            corpo.insertAdjacentHTML('beforeend', itens.map(function (m) { return linhaHistorico(m, false); }).join(''));
+            total += itens.length;
+            botao.disabled = itens.length === 0;
+            contar();
+         });
+      }
+
+      function definirPausa(valor) {
+         pausado = valor;
+         var status = document.getElementById('wae-hist-status');
+         status.classList.toggle('wae-pausado', pausado);
+         status.lastChild.textContent = pausado ? 'Pausado' : 'Ao vivo';
+         document.querySelector('#wae-hist-pausar i').className = pausado ? 'ti ti-player-play' : 'ti ti-player-pause';
+         document.getElementById('wae-hist-pausar').title = pausado ? 'Retomar a atualização automática' : 'Pausar a atualização automática';
+         if (!pausado) { novidades(); }
+      }
+
+      var espera = null;
+      document.getElementById('wae-hist-busca').addEventListener('input', function () {
+         clearTimeout(espera);
+         espera = setTimeout(recarregar, 350);
+      });
+      ['wae-hist-direcao', 'wae-hist-tipo', 'wae-hist-chamado'].forEach(function (campo) {
+         document.getElementById(campo).addEventListener('change', recarregar);
+      });
+      document.getElementById('wae-hist-pausar').addEventListener('click', function () { definirPausa(!pausado); });
+      document.getElementById('wae-hist-mais').addEventListener('click', maisAntigas);
+
+      recarregar();
+      timer = setInterval(function () {
+         if (!document.body.contains(caixa)) { clearInterval(timer); return; }
+         novidades();
+      }, 3000);
+   }
+
    window.WAEPainel = {
       iniciarServidor: iniciarServidor,
-      definirEdicao: definirEdicao
+      definirEdicao: definirEdicao,
+      iniciarMensagens: iniciarMensagens
    };
 })();

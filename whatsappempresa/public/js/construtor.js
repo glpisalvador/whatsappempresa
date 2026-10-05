@@ -1051,6 +1051,27 @@
          });
       }
 
+      // Ocultar e mostrar os paineis laterais (lembrado neste navegador)
+      function alternarPainel(classe, botaoId, iconeAberto, iconeFechado, rotulo, forcar) {
+         var oculto = forcar !== undefined ? forcar : !raiz.classList.contains(classe);
+         raiz.classList.toggle(classe, oculto);
+         var botao = $id(botaoId);
+         botao.querySelector('i').className = 'ti ' + (oculto ? iconeFechado : iconeAberto);
+         botao.title = (oculto ? 'Mostrar ' : 'Ocultar ') + rotulo;
+         botao.classList.toggle('active', oculto);
+         try { localStorage.setItem('wae-construtor-' + classe, oculto ? '1' : '0'); } catch (x) { /* sem armazenamento */ }
+      }
+      var paineis = [
+         ['wae-sem-paleta', 'wae-cons-alternar-paleta', 'ti-layout-sidebar-left-collapse', 'ti-layout-sidebar-left-expand', 'o menu de blocos'],
+         ['wae-sem-props', 'wae-cons-alternar-props', 'ti-layout-sidebar-right-collapse', 'ti-layout-sidebar-right-expand', 'o painel de propriedades']
+      ];
+      paineis.forEach(function (p) {
+         $id(p[1]).addEventListener('click', function () { alternarPainel(p[0], p[1], p[2], p[3], p[4]); });
+         var salvo = null;
+         try { salvo = localStorage.getItem('wae-construtor-' + p[0]); } catch (x) { salvo = null; }
+         if (salvo === '1') { alternarPainel(p[0], p[1], p[2], p[3], p[4], true); }
+      });
+
       $id('wae-cons-zoom-mais').addEventListener('click', function () { editor.zoom_in(); mostrarZoom(); });
       $id('wae-cons-zoom-menos').addEventListener('click', function () { editor.zoom_out(); mostrarZoom(); });
       $id('wae-cons-zoom-normal').addEventListener('click', function () { editor.zoom_reset(); mostrarZoom(); });
@@ -1109,6 +1130,95 @@
    // Area de desenho
    // ============================================
 
+   /**
+    * Navegacao pela area de desenho (substitui o arrastar do Drawflow, que falhava quando o
+    * clique caia em linhas, na legenda ou fora da area desenhada, e travava se o botao fosse
+    * solto fora da tela):
+    * - botao esquerdo em qualquer ponto vazio, ou botao do meio em qualquer lugar: arrasta
+    * - roda do mouse: rola; Ctrl + roda continua com o zoom do Drawflow
+    */
+   function ligarNavegacao(area) {
+      var arrasto = null;
+
+      function sobreElemento(alvo) {
+         return alvo.closest('.drawflow-node, .output, .input, .connection, .drawflow-delete, .wae-cons-vazio');
+      }
+
+      function desmarcarTudo() {
+         if (editor.node_selected) {
+            editor.node_selected.classList.remove('selected');
+            editor.node_selected = null;
+            editor.dispatch('nodeUnselected', true);
+         }
+         if (editor.connection_selected) {
+            editor.connection_selected.classList.remove('selected');
+            editor.connection_selected = null;
+            editor.dispatch('connectionUnselected', true);
+         }
+         var botaoApagar = area.querySelector('.drawflow-delete');
+         if (botaoApagar) { botaoApagar.remove(); }
+      }
+
+      function comecar(x, y) {
+         arrasto = { x: x, y: y, cx: editor.canvas_x, cy: editor.canvas_y, moveu: false };
+         area.classList.add('wae-arrastando');
+      }
+
+      function mover(x, y) {
+         if (!arrasto) { return; }
+         var dx = x - arrasto.x;
+         var dy = y - arrasto.y;
+         if (Math.abs(dx) + Math.abs(dy) > 3) { arrasto.moveu = true; }
+         editor.canvas_x = arrasto.cx + dx;
+         editor.canvas_y = arrasto.cy + dy;
+         aplicarTransformacao();
+      }
+
+      function terminar() {
+         if (!arrasto) { return; }
+         var moveu = arrasto.moveu;
+         arrasto = null;
+         area.classList.remove('wae-arrastando');
+         // Clique simples no fundo: tira a selecao (como o Drawflow fazia)
+         if (!moveu) { desmarcarTudo(); }
+      }
+
+      // Fase de captura: decide antes do Drawflow
+      area.addEventListener('mousedown', function (ev) {
+         var meio = ev.button === 1;
+         if (!meio && (ev.button !== 0 || sobreElemento(ev.target))) { return; }
+         ev.preventDefault();
+         ev.stopImmediatePropagation();
+         comecar(ev.clientX, ev.clientY);
+      }, true);
+
+      document.addEventListener('mousemove', function (ev) {
+         if (arrasto) { ev.preventDefault(); mover(ev.clientX, ev.clientY); }
+      });
+      document.addEventListener('mouseup', terminar);
+      window.addEventListener('blur', terminar);
+
+      // Toque (tablet): um dedo no fundo arrasta
+      area.addEventListener('touchstart', function (ev) {
+         if (ev.touches.length !== 1 || sobreElemento(ev.target)) { return; }
+         ev.stopImmediatePropagation();
+         comecar(ev.touches[0].clientX, ev.touches[0].clientY);
+      }, { capture: true, passive: true });
+      area.addEventListener('touchmove', function (ev) {
+         if (arrasto && ev.touches.length === 1) { mover(ev.touches[0].clientX, ev.touches[0].clientY); }
+      }, { passive: true });
+      area.addEventListener('touchend', terminar);
+
+      // Roda do mouse (ou dois dedos no touchpad) rola a area
+      area.addEventListener('wheel', function (ev) {
+         if (ev.ctrlKey) { return; }
+         ev.preventDefault();
+         editor.canvas_x -= ev.deltaX;
+         editor.canvas_y -= ev.deltaY;
+         aplicarTransformacao();
+      }, { passive: false });
+   }
+
    function ligarEditor() {
       var area = $id('wae-cons-drawflow');
       editor = new Drawflow(area);
@@ -1118,6 +1228,8 @@
       editor.zoom_max = 1.6;
       editor.editor_mode = podeEditar ? 'edit' : 'view';
       editor.start();
+
+      ligarNavegacao(area);
 
       area.addEventListener('dragover', function (ev) { if (podeEditar) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
       area.addEventListener('drop', function (ev) {

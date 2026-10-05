@@ -72,6 +72,23 @@
       var classe = item.direcao === 'saida' ? 'wae-balao wae-balao-saida' : 'wae-balao';
       var midia = '';
 
+      // Mensagem citada (esta e uma resposta): bloco no topo, clicavel para ir ate a original
+      var citada = item.citada
+         ? '<div class="wae-citada' + (item.citada.autor === 'Você' ? ' wae-citada-minha' : '') + '" data-ir-para="' + (item.citada.id || 0) + '" title="Ir para a mensagem citada">' +
+              '<strong>' + escapar(item.citada.autor || '') + '</strong><span>' + escapar(item.citada.texto) + '</span></div>'
+         : '';
+
+      // Acoes no balao: responder citando e reagir (so para mensagens com id do WhatsApp)
+      var acoes = item.citavel
+         ? '<div class="wae-balao-acoes">' +
+              '<button type="button" data-responder="' + item.id + '" title="Responder"><i class="ti ti-corner-up-left"></i></button>' +
+              '<button type="button" data-reagir="' + item.id + '" title="Reagir"><i class="ti ti-mood-smile"></i></button>' +
+           '</div>'
+         : '';
+
+      var reacoes = [item.reacao_cliente, item.reacao_atendente].filter(Boolean);
+      var selo = reacoes.length ? '<span class="wae-reacoes" title="Reações">' + escapar(reacoes.join(' ')) + '</span>' : '';
+
       if (item.tipo_midia === 'imagem' && item.midia_url) {
          midia = '<img class="wae-midia-img" src="' + escapar(item.midia_url) + '" alt="Imagem" loading="lazy" data-ampliar="' + escapar(item.midia_url) + '">';
       } else if (item.tipo_midia === 'audio' && item.midia_url) {
@@ -80,9 +97,13 @@
 
       var texto = item.conteudo ? '<span class="wae-balao-texto">' + escapar(item.conteudo) + '</span>' : '';
 
-      return '<div class="' + classe + '">' + midia + texto +
-         '<span class="wae-balao-meta">' + escapar(item.data) + ' - ' + escapar(item.contato || '') + '</span></div>';
+      return '<div class="' + classe + (reacoes.length ? ' wae-com-reacao' : '') + '" data-mensagem="' + item.id + '">' +
+         acoes + citada + midia + texto +
+         '<span class="wae-balao-meta">' + escapar(item.data) + ' - ' + escapar(item.contato || '') + '</span>' + selo + '</div>';
    }
+
+   // Ultima lista recebida: usada para montar a citacao ao clicar em Responder
+   var mensagensAtuais = {};
 
    function rolarParaFim(chat) {
       chat.scrollTop = chat.scrollHeight;
@@ -98,7 +119,12 @@
          return;
       }
 
-      var chaves = mensagens.map(function (item) { return item.id + ':' + (item.status || ''); });
+      mensagens.forEach(function (item) { mensagensAtuais[item.id] = item; });
+
+      // Reacao nova ou status de envio alterado redesenham; mensagem nova so entra no fim
+      var chaves = mensagens.map(function (item) {
+         return item.id + ':' + (item.status || '') + ':' + (item.reacao_cliente || '') + ':' + (item.reacao_atendente || '');
+      });
       var pertoDoFim = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 90;
       var continua = desenhadas.length > 0 && desenhadas.length <= chaves.length &&
          desenhadas.every(function (chave, i) { return chave === chaves[i]; });
@@ -135,13 +161,141 @@
       }
    }
 
+   // ============================================
+   // Citacao (responder uma mensagem) e reacoes
+   // ============================================
+
+   var citando = null; // mensagem sendo respondida { id, autor, texto }
+   var REACOES = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+   function resumoMensagem(item) {
+      var texto = item.conteudo || '';
+      if (item.tipo_midia === 'imagem') { texto = '📷 ' + (texto || 'Imagem'); }
+      if (item.tipo_midia === 'audio') { texto = '🎤 ' + (texto || 'Áudio'); }
+      return texto;
+   }
+
+   function responder(id) {
+      var item = mensagensAtuais[id];
+      if (!item) { return; }
+      citando = { id: item.id, autor: item.direcao === 'saida' ? 'Você' : (item.contato || 'Contato'), texto: resumoMensagem(item) };
+      document.getElementById('wae-aba-citando-autor').textContent = citando.autor;
+      document.getElementById('wae-aba-citando-texto').textContent = citando.texto;
+      document.getElementById('wae-aba-citando').classList.remove('wae-oculto');
+      document.getElementById('wae-aba-texto').focus();
+   }
+
+   function cancelarResposta() {
+      citando = null;
+      document.getElementById('wae-aba-citando').classList.add('wae-oculto');
+   }
+
+   var fecharCitando = document.getElementById('wae-aba-citando-fechar');
+   if (fecharCitando) { fecharCitando.addEventListener('click', cancelarResposta); }
+
+   /** Janelinha com as reacoes rapidas, junto do balao */
+   function abrirReacoes(botao, id) {
+      fecharPopups();
+      var item = mensagensAtuais[id] || {};
+      var popup = document.createElement('div');
+      popup.className = 'wae-popup-reacoes';
+      popup.innerHTML = REACOES.map(function (emo) {
+         return '<button type="button" data-emoji="' + emo + '"' + (item.reacao_atendente === emo ? ' class="ativa"' : '') + '>' + emo + '</button>';
+      }).join('') + (item.reacao_atendente ? '<button type="button" data-emoji="" title="Remover minha reação"><i class="ti ti-x"></i></button>' : '');
+      botao.closest('.wae-balao').appendChild(popup);
+
+      popup.addEventListener('click', function (ev) {
+         var escolha = ev.target.closest('[data-emoji]');
+         if (!escolha) { return; }
+         ev.stopPropagation();
+         fecharPopups();
+         pedir('conversa_reagir', { mensagens_id: id, emoji: escolha.getAttribute('data-emoji') }, 'POST').then(function (r) {
+            if (!r.sucesso) { avisar(r.mensagem || 'Nao foi possivel reagir.', 'erro'); return; }
+            carregar();
+         });
+      });
+   }
+
+   function fecharPopups() {
+      document.querySelectorAll('.wae-popup-reacoes').forEach(function (p) { p.remove(); });
+   }
+
+   document.addEventListener('click', function (ev) {
+      if (!ev.target.closest('.wae-popup-reacoes') && !ev.target.closest('[data-reagir]')) { fecharPopups(); }
+      if (!ev.target.closest('#wae-aba-emojis') && !ev.target.closest('#wae-aba-emoji')) {
+         var painelEmojis = document.getElementById('wae-aba-emojis');
+         if (painelEmojis) { painelEmojis.classList.add('wae-oculto'); }
+      }
+   });
+
    var chatArea = document.getElementById('wae-aba-chat');
    if (chatArea) {
       chatArea.addEventListener('click', function (evento) {
          var alvo = evento.target;
          if (alvo && alvo.matches && alvo.matches('img[data-ampliar]')) {
             abrirImagem(alvo.getAttribute('data-ampliar'));
+            return;
          }
+
+         var botaoResponder = alvo.closest && alvo.closest('[data-responder]');
+         if (botaoResponder) { responder(botaoResponder.getAttribute('data-responder')); return; }
+
+         var botaoReagir = alvo.closest && alvo.closest('[data-reagir]');
+         if (botaoReagir) { abrirReacoes(botaoReagir, botaoReagir.getAttribute('data-reagir')); return; }
+
+         // Clique na citacao: rola ate a mensagem original e destaca
+         var irPara = alvo.closest && alvo.closest('[data-ir-para]');
+         if (irPara) {
+            var original = chatArea.querySelector('[data-mensagem="' + irPara.getAttribute('data-ir-para') + '"]');
+            if (original) {
+               original.scrollIntoView({ behavior: 'smooth', block: 'center' });
+               original.classList.add('wae-destaque');
+               setTimeout(function () { original.classList.remove('wae-destaque'); }, 1600);
+            }
+         }
+      });
+   }
+
+   // ============================================
+   // Emojis
+   // ============================================
+
+   var EMOJIS = {
+      'Carinhas': '😀 😃 😄 😁 😆 😅 🤣 😂 🙂 😉 😊 😇 🥰 😍 🤩 😘 😋 😜 🤪 🤗 🤭 🤫 🤔 🤐 😐 😑 😶 😏 😒 🙄 😬 😌 😔 😪 😴 😷 🤒 🤕 🤢 🤧 🥵 🥶 😵 🤯 🥳 😎 🤓 😕 😟 🙁 😮 😯 😲 😳 🥺 😦 😧 😨 😰 😥 😢 😭 😱 😖 😣 😞 😓 😩 😫 😤 😡 😠',
+      'Gestos': '👍 👎 👌 ✌️ 🤞 🤟 🤙 👈 👉 👆 👇 ☝️ ✋ 🤚 🖐️ 👋 👏 🙌 👐 🤲 🤝 🙏 ✍️ 💪 🫡 🤷 🙋 🙆 🙅 🤦',
+      'Corações': '❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 💕 💞 💓 💗 💖 💘 💝',
+      'Objetos': '💻 🖥️ 🖨️ ⌨️ 🖱️ 📱 ☎️ 📞 📠 🔌 🔋 💡 🔧 🔨 🛠️ ⚙️ 🔒 🔓 🔑 📁 📂 📄 📋 📅 📆 📌 📎 ✏️ 📝 📧 📨 📦 🧾 💰 💳',
+      'Símbolos': '✅ ☑️ ✔️ ❌ ❎ ⚠️ 🚫 ⛔ ❗ ❓ ‼️ ⁉️ 💯 🔥 ⭐ 🌟 ✨ ⚡ 🎉 🎊 🏆 🎯 🚀 ⏰ ⏳ ⌛ 🕐 🔔 🔕 📢 💬 🗨️ 👀 🆗 🆕 🆘 ➡️ ⬅️ ⬆️ ⬇️ 🔄'
+   };
+
+   function montarEmojis() {
+      var painel = document.getElementById('wae-aba-emojis');
+      if (!painel || painel.hasAttribute('data-montado')) { return; }
+      painel.setAttribute('data-montado', '1');
+      painel.innerHTML = Object.keys(EMOJIS).map(function (grupo) {
+         return '<div class="wae-emojis-grupo">' + escapar(grupo) + '</div><div class="wae-emojis-grade">' +
+            EMOJIS[grupo].split(' ').map(function (emo) { return '<button type="button" data-inserir-emoji="' + emo + '">' + emo + '</button>'; }).join('') +
+            '</div>';
+      }).join('');
+
+      painel.addEventListener('click', function (ev) {
+         var botao = ev.target.closest('[data-inserir-emoji]');
+         if (!botao) { return; }
+         var campo = document.getElementById('wae-aba-texto');
+         var inicio = campo.selectionStart != null ? campo.selectionStart : campo.value.length;
+         var fim = campo.selectionEnd != null ? campo.selectionEnd : inicio;
+         var emo = botao.getAttribute('data-inserir-emoji');
+         campo.value = campo.value.slice(0, inicio) + emo + campo.value.slice(fim);
+         campo.focus();
+         campo.selectionStart = campo.selectionEnd = inicio + emo.length;
+      });
+   }
+
+   var botaoEmoji = document.getElementById('wae-aba-emoji');
+   if (botaoEmoji) {
+      botaoEmoji.addEventListener('click', function () {
+         montarEmojis();
+         document.getElementById('wae-aba-emojis').classList.toggle('wae-oculto');
       });
    }
 
@@ -410,12 +564,13 @@
       carregar();
    }
 
-   function enviarArquivo(tipo, arquivo, legenda, numero) {
+   function enviarArquivo(tipo, arquivo, legenda, numero, citarId) {
       return pedir('conversa_enviar_midia', {
          tickets_id: tickets_id,
          telefone: numero,
          tipo: tipo,
          texto: legenda || '',
+         citar_id: citarId || 0,
          arquivo: arquivo
       }, 'POST');
    }
@@ -440,7 +595,7 @@
          }
 
          var legenda = enviadas === 0 ? texto : '';
-         enviarArquivo('imagem', pendentes[0].arquivo, legenda, numero).then(function (resposta) {
+         enviarArquivo('imagem', pendentes[0].arquivo, legenda, numero, enviadas === 0 && citando ? citando.id : 0).then(function (resposta) {
             if (!resposta.sucesso) {
                travarEnvio(false);
                avisar((resposta.mensagem || 'Nao foi possivel enviar a imagem.') +
@@ -448,7 +603,7 @@
                depoisDeEnviar();
                return;
             }
-            if (enviadas === 0 && campo) { campo.value = ''; }
+            if (enviadas === 0 && campo) { campo.value = ''; cancelarResposta(); }
             enviadas++;
             removerPendente(0);
             proxima();
@@ -480,11 +635,13 @@
       pedir('conversa_enviar', {
          tickets_id: tickets_id,
          telefone: numero,
-         texto: texto
+         texto: texto,
+         citar_id: citando ? citando.id : 0
       }, 'POST').then(function (resposta) {
          travarEnvio(false);
          if (resposta.sucesso) {
             campo.value = '';
+            cancelarResposta();
             avisar('', '');
          } else {
             avisar(resposta.mensagem || 'Nao foi possivel enviar.', 'erro');
@@ -600,8 +757,9 @@
 
       travarEnvio(true);
       avisar('Enviando audio...', 'info');
-      enviarArquivo('audio', arquivo, '', numeroEscolhido()).then(function (resposta) {
+      enviarArquivo('audio', arquivo, '', numeroEscolhido(), citando ? citando.id : 0).then(function (resposta) {
          travarEnvio(false);
+         if (resposta.sucesso) { cancelarResposta(); }
          avisar(resposta.sucesso ? '' : (resposta.mensagem || 'Nao foi possivel enviar o audio.'), resposta.sucesso ? '' : 'erro');
          depoisDeEnviar();
       });

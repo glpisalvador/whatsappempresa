@@ -112,8 +112,17 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       // Imagens coladas aguardando envio
       echo '<div class="wae-anexos wae-oculto" id="wae-aba-anexos"></div>';
 
+      // Resposta citando uma mensagem (aparece ao clicar em "Responder" num balao)
+      echo '<div class="wae-citando wae-oculto" id="wae-aba-citando">';
+      echo '<i class="ti ti-corner-up-left"></i>';
+      echo '<div class="wae-citando-conteudo"><strong id="wae-aba-citando-autor"></strong><span id="wae-aba-citando-texto"></span></div>';
+      echo '<button type="button" class="btn btn-sm btn-ghost-secondary" id="wae-aba-citando-fechar" title="Cancelar resposta"><i class="ti ti-x"></i></button>';
+      echo '</div>';
+
       // Uma linha: Enter envia, Shift+Enter quebra linha; Ctrl+V cola imagens
-      echo '<div class="input-group align-items-start mt-2">';
+      echo '<div class="input-group align-items-start mt-2 position-relative">';
+      echo '<button type="button" class="btn btn-outline-secondary" id="wae-aba-emoji" title="Emojis"><i class="ti ti-mood-smile"></i></button>';
+      echo '<div class="wae-emojis wae-oculto" id="wae-aba-emojis"></div>';
       echo '<textarea class="form-control" id="wae-aba-texto" rows="1" style="resize:none" placeholder="Escreva a mensagem e tecle Enter (Ctrl+V cola imagens)"></textarea>';
       echo '<span class="form-control wae-gravando wae-oculto" id="wae-aba-gravando"><span class="wae-ponto-gravando"></span><span id="wae-aba-relogio">0:00</span> Gravando audio...</span>';
       echo '<button type="button" class="btn btn-outline-secondary wae-oculto" id="wae-aba-cancelar-gravacao" title="Descartar gravacao"><i class="ti ti-trash"></i></button>';
@@ -412,7 +421,7 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
    /**
     * Envio feito pelo tecnico (aba do chamado ou modal global)
     */
-   static function enviarDoTecnico(string $telefone, string $texto, int $tickets_id = 0, string $nomeContato = '', ?array $midia = null): array {
+   static function enviarDoTecnico(string $telefone, string $texto, int $tickets_id = 0, string $nomeContato = '', ?array $midia = null, ?array $citar = null): array {
       global $DB;
 
       $numero      = PluginWhatsappempresaConfig::limparTelefone($telefone);
@@ -470,7 +479,8 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
          'tickets_id'   => $tickets_id,
          'users_id'     => $tecnicos_id,
          'origem_tipo'  => 'humano',
-         'midia'        => $midia
+         'midia'        => $midia,
+         'citar'        => $citar
       ]);
 
       $resumo = trim($texto);
@@ -691,6 +701,16 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
                    . htmlescape($autor) . '</span>';
          }
 
+         // Mensagem citada (resposta), no topo do balao como no WhatsApp
+         if (trim((string)($mensagem['citada_texto'] ?? '')) !== '') {
+            $autorCitada = self::autorDaCitada((int)($mensagem['citada_id'] ?? 0));
+            $html .= '<span style="display:block;margin:2px 0 4px;padding:4px 8px;border-left:3px solid '
+                   . ($autorCitada === 'Você' ? 'rgba(0,128,105,0.8)' : 'rgba(2,126,181,0.8)')
+                   . ';background:rgba(11,20,26,0.05);border-radius:4px;font-size:12px;color:rgba(17,27,33,0.7);">'
+                   . ($autorCitada !== '' ? '<strong style="display:block;font-size:11px;">' . htmlescape($autorCitada) . '</strong>' : '')
+                   . htmlescape(mb_substr((string)$mensagem['citada_texto'], 0, 200)) . '</span>';
+         }
+
          $temMidia = !empty($mensagem['tipo_midia']) && !empty($mensagem['midia_arquivo']);
          if ($temMidia) {
             $html .= self::midiaNaTranscricao($mensagem, (int)$conversa['tickets_id'], $contato);
@@ -704,7 +724,16 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
                ? ' <span style="color:rgba(220,53,69,0.85);" title="Nao entregue">&#9888;</span>'
                : ' <span style="color:rgba(83,189,235,0.95);letter-spacing:-3px;">&#10003;&#10003;</span>';
          }
-         $html .= '</span></div></div>';
+         $html .= '</span>';
+
+         // Reacoes (emoji) de cada lado
+         $reacoes = array_filter([(string)($mensagem['reacao_cliente'] ?? ''), (string)($mensagem['reacao_atendente'] ?? '')]);
+         if ($reacoes) {
+            $html .= '<span style="display:inline-block;margin-top:2px;padding:0 6px;border-radius:10px;background:rgba(255,255,255,0.9);'
+                   . 'box-shadow:0 1px 1px rgba(11,20,26,0.15);font-size:13px;">' . htmlescape(implode(' ', $reacoes)) . '</span>';
+         }
+
+         $html .= '</div></div>';
       }
 
       $html .= '<div style="text-align:center;margin:10px 0 2px;"><span style="' . $chip . '">Conversa encerrada &middot; '
@@ -985,6 +1014,29 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
       return $documents_id;
    }
 
+   /**
+    * Quem escreveu a mensagem citada: "Você" (enviada pelo GLPI) ou o contato
+    */
+   static function autorDaCitada(int $mensagens_id): string {
+      global $DB;
+      if ($mensagens_id <= 0) {
+         return '';
+      }
+      foreach ($DB->request([
+         'SELECT' => ['direcao', 'conversas_id'],
+         'FROM'   => 'glpi_plugin_whatsappempresa_mensagens',
+         'WHERE'  => ['id' => $mensagens_id],
+         'LIMIT'  => 1
+      ]) as $linha) {
+         if ($linha['direcao'] === 'saida') {
+            return 'Você';
+         }
+         $conversa = self::porId((int)$linha['conversas_id']);
+         return $conversa !== null ? (string)($conversa['nome_contato'] ?: $conversa['telefone']) : 'Contato';
+      }
+      return '';
+   }
+
    static function listarMensagens(int $conversas_id, int $limite = 80): array {
       global $DB;
 
@@ -1003,6 +1055,15 @@ class PluginWhatsappempresaConversa extends CommonDBTM {
             'direcao'     => $linha['direcao'],
             'conteudo'    => $temMidia ? PluginWhatsappempresaMensagem::legenda($linha) : (string)$linha['conteudo'],
             'tipo_midia'  => $temMidia ? (string)$linha['tipo_midia'] : '',
+            // Citacao (resposta a outra mensagem) e reacoes
+            'citada'      => trim((string)($linha['citada_texto'] ?? '')) !== '' ? [
+               'id'    => (int)($linha['citada_id'] ?? 0),
+               'texto' => (string)$linha['citada_texto'],
+               'autor' => self::autorDaCitada((int)($linha['citada_id'] ?? 0))
+            ] : null,
+            'reacao_cliente'   => (string)($linha['reacao_cliente'] ?? ''),
+            'reacao_atendente' => (string)($linha['reacao_atendente'] ?? ''),
+            'citavel'     => !empty($linha['wa_id']),
             'midia_url'   => $temMidia ? self::urlMidia((int)$linha['id']) : '',
             'fluxo'       => $linha['fluxo'],
             'origem_tipo' => (string)($linha['origem_tipo'] ?? 'automacao'),

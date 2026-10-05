@@ -55,6 +55,15 @@ if ($oficial === '' || !hash_equals($oficial, (string)$token)) {
 
    $resposta_json = ['ok' => true, 'confirmados' => $ajustados, 'respostas' => []];
 
+} elseif (!empty($corpo['reacao']) && is_array($corpo['reacao'])) {
+   // Reacao do cliente (emoji) numa mensagem da conversa
+   $marcada = PluginWhatsappempresaMensagem::registrarReacao(
+      (string)($corpo['reacao']['wa_id'] ?? ''),
+      (string)($corpo['reacao']['emoji'] ?? ''),
+      true
+   );
+   $resposta_json = ['ok' => true, 'reacao' => $marcada, 'respostas' => []];
+
 } elseif (!empty($corpo['teste'])) {
    $resposta_json = ['ok' => true, 'teste' => true, 'origem' => $origem, 'respostas' => []];
 
@@ -81,6 +90,16 @@ if ($oficial === '' || !hash_equals($oficial, (string)$token)) {
       }
    }
    PluginWhatsappempresaMensagem::definirMidiaRecebida($midia);
+
+   // Id da mensagem no WhatsApp e, se for resposta, a mensagem citada
+   $citada = is_array($corpo['citada'] ?? null) ? $corpo['citada'] : null;
+   PluginWhatsappempresaMensagem::definirExtrasRecebida([
+      'wa_id'  => mb_substr((string)($corpo['wa_id'] ?? ''), 0, 80),
+      'citada' => $citada !== null ? [
+         'wa_id' => mb_substr((string)($citada['wa_id'] ?? ''), 0, 80),
+         'texto' => mb_substr((string)($citada['texto'] ?? ''), 0, 500)
+      ] : null
+   ]);
 
    if ($telefone !== '' && $texto !== '') {
       $detalhado = PluginWhatsappempresaConfig::ativo('log_detalhado');
@@ -208,5 +227,6 @@ if ($oficial === '' || !hash_equals($oficial, (string)$token)) {
 }
 
 PluginWhatsappempresaMensagem::definirMidiaRecebida(null);
+PluginWhatsappempresaMensagem::definirExtrasRecebida(null);
 
 echo json_encode($resposta_json, JSON_UNESCAPED_UNICODE);

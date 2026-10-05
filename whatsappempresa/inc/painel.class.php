@@ -17,6 +17,7 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
    const ABA_MENSAGENS  = 4;
    const ABA_FLUXOS     = 5;
    const ABA_CLIENTES   = 6;
+   const ABA_HISTORICO  = 7;
 
    static function getTypeName($nb = 0): string {
       return 'WhatsApp Empresa';
@@ -67,9 +68,10 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
       }
       return [
          self::ABA_SERVIDOR   => self::createTabEntry('Servidor', 0, null, 'ti ti-server'),
+         self::ABA_HISTORICO  => self::createTabEntry('Mensagens', 0, null, 'ti ti-messages'),
          self::ABA_PARAMETROS => self::createTabEntry('Parametros', 0, null, 'ti ti-adjustments'),
          self::ABA_REGRAS     => self::createTabEntry('Regras', 0, null, 'ti ti-shield-check'),
-         self::ABA_MENSAGENS  => self::createTabEntry('Mensagens', 0, null, 'ti ti-message-2'),
+         self::ABA_MENSAGENS  => self::createTabEntry('Textos', 0, null, 'ti ti-forms'),
          self::ABA_CLIENTES   => self::createTabEntry('Clientes', countElementsInTable(PluginWhatsappempresaCliente::TABELA), null, 'ti ti-building'),
          self::ABA_FLUXOS     => self::createTabEntry('Fluxos', 0, null, 'ti ti-git-merge')
       ];
@@ -109,6 +111,10 @@ class PluginWhatsappempresaPainel extends CommonGLPI {
             $variaveis['grupos'] = self::gruposMensagens();
             $variaveis['palavras'] = self::palavras();
             self::renderizar('painel_mensagens', $variaveis);
+            break;
+
+         case self::ABA_HISTORICO:
+            self::renderizar('painel_historico', $variaveis);
             break;
 
          case self::ABA_FLUXOS:

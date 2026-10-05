@@ -258,8 +258,13 @@
 
          caixa.innerHTML = resposta.mensagens.map(function (mensagem) {
             var classe = mensagem.direcao === 'saida' ? 'waen-balao waen-balao-saida' : 'waen-balao';
-            return '<div class="' + classe + '">' + midiaDoBalao(mensagem) + escapar(mensagem.conteudo) +
-               '<span class="waen-balao-meta">' + escapar(mensagem.data) + '</span></div>';
+            var citada = mensagem.citada
+               ? '<div class="wae-citada' + (mensagem.citada.autor === 'Você' ? ' wae-citada-minha' : '') + '"><strong>' +
+                  escapar(mensagem.citada.autor || '') + '</strong><span>' + escapar(mensagem.citada.texto) + '</span></div>'
+               : '';
+            var reacoes = [mensagem.reacao_cliente, mensagem.reacao_atendente].filter(Boolean).join(' ');
+            return '<div class="' + classe + '">' + citada + midiaDoBalao(mensagem) + escapar(mensagem.conteudo) +
+               '<span class="waen-balao-meta">' + escapar(mensagem.data) + (reacoes ? ' · ' + escapar(reacoes) : '') + '</span></div>';
          }).join('');
 
          caixa.scrollTop = caixa.scrollHeight;
